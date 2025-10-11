@@ -9,8 +9,8 @@ services:
     autoDeploy: true
     envVars:
      - key: TELEGRAM_BOT_TOKEN
-        value: 8043299867:AAGF9R60mEhvZyRM4RwT4YnCSQFT0L_nfdQ
+        value: '8043299867:AAGF9R60mEhvZyRM4RwT4YnCSQFT0L_nfdQ'
         sync: false
       - key: TELEGRAM_CHAT_ID
-        value: -1003104139469
+        value: '-1003104139469'
         sync: false
