@@ -5,7 +5,7 @@ const CONFIG = {
   url: "https://dyorswap.org",
   telegram: {
     token: "8043299867:AAGF9R60mEhvZyRM4RwT4YnCSQFT0L_nfdQ",  // 替换为你的 Telegram Bot Token
-    chatId: "2115838901",   // 替换为你的 Chat ID
+    chatId: "-1003104139469",   // 替换为你的 Chat ID
   },
   interval: 60000 // 检测间隔（毫秒），默认 60 秒
 };
