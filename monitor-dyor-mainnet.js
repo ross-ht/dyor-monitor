@@ -61,6 +61,7 @@ async function sendTelegramMessage(message) {
 async function monitor() {
   console.log("🔍 正在监控主网列表变化...");
   const currentNetworks = await getNetworks();
+  await sendTelegramMessage("🔍 正在监控主网列表变化...");
 
   if (previousNetworks.length === 0) {
     previousNetworks = currentNetworks;
