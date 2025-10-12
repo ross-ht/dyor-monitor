@@ -5,7 +5,7 @@ services:
     region: singapore           # 或 oregon / frankfurt
     plan: free
     buildCommand: npm install
-    startCommand: node monitor-dyor-mainnet.js
+    startCommand: node server.js
     autoDeploy: true
     envVars:
       - key: TELEGRAM_BOT_TOKEN
