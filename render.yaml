@@ -16,5 +16,4 @@ services:
         sync: false
       - key: PAGE_TIMEOUT
         sync: false
-      - key: CHROME_PATH
-        sync: false
+  
