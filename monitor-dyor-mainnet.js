@@ -75,20 +75,20 @@ async function launchBrowser() {
  }
  
  /** 启动 Puppeteer */
- async function launchBrowser() {
-   try {
-     const browser = await puppeteer.launch({
-       headless: true,
-       executablePath: CONFIG.chromePath,
-       args: ["--no-sandbox", "--disable-setuid-sandbox"],
-     });
-     return browser;
-   } catch (err) {
-     console.error("🚫 启动 Chrome 失败:", err.message);
-     await sendTelegramMessage("🚨 无法启动 Puppeteer，请检查 Chrome 路径！");
-     throw err;
-   }
- }
+//  async function launchBrowser() {
+//    try {
+//      const browser = await puppeteer.launch({
+//        headless: true,
+//        executablePath: CONFIG.chromePath,
+//        args: ["--no-sandbox", "--disable-setuid-sandbox"],
+//      });
+//      return browser;
+//    } catch (err) {
+//      console.error("🚫 启动 Chrome 失败:", err.message);
+//      await sendTelegramMessage("🚨 无法启动 Puppeteer，请检查 Chrome 路径！");
+//      throw err;
+//    }
+//  }
  
  /** 获取主网列表（含重试） */
  async function getNetworks(retry = 0) {
