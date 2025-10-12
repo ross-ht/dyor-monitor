@@ -3,6 +3,23 @@
     "axios": "^1.12.2",
     "puppeteer": "^24.24.0"
   },
-  "type": "module"
+  "type": "module",
+  "name": "dyor-monitor",
+  "version": "1.0.0",
+  "description": "",
+  "main": "monitor-dyor-mainnet.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ross-ht/dyor-monitor.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ross-ht/dyor-monitor/issues"
+  },
+  "homepage": "https://github.com/ross-ht/dyor-monitor#readme"
 }
-
