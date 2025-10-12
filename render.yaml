@@ -4,10 +4,7 @@ services:
     env: node
     region: singapore           # 或 oregon / frankfurt
     plan: free
-    buildCommand: |
-      apt-get update
-      apt-get install -y chromium
-      npm install
+    buildCommand: npm install
     startCommand: node server.js
     autoDeploy: true
     envVars:
