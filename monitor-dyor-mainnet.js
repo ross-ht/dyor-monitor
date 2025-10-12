@@ -12,11 +12,35 @@
  *  TELEGRAM_CHAT_ID=xxx
  *  CHECK_INTERVAL=60000
  *  PAGE_TIMEOUT=60000
- *  CHROME_PATH=/usr/bin/chromium-browser
+ *  CHROME_PATH=/usr/bin/google-chrome-stable
  */
 
- import puppeteer from "puppeteer";
+ import puppeteer from "puppeteer-core";
  import axios from "axios";
+
+
+async function launchBrowser() {
+  try {
+    const browser = await puppeteer.launch({
+      headless: true,
+      executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome-stable",
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-gpu",
+        "--disable-dev-shm-usage",
+        "--disable-extensions",
+        "--no-zygote",
+        "--single-process"
+      ]
+    });
+    return browser;
+  } catch (err) {
+    console.error("🚫 启动 Chrome 失败:", err.message);
+    await sendTelegramMessage("🚨 无法启动 Puppeteer，请检查 Chrome 路径！");
+    throw err;
+  }
+}
  
  const CONFIG = {
    url: "https://dyorswap.org",
