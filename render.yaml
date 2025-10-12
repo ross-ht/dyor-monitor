@@ -2,13 +2,19 @@ services:
   - type: worker
     name: dyor-monitor
     env: node
-    region: singapore           # 或者 oregon / frankfurt 等，根据你距离选择
+    region: singapore           # 或 oregon / frankfurt
+    plan: free
     buildCommand: npm install
     startCommand: node monitor-dyor-mainnet.js
-    plan: free
     autoDeploy: true
     envVars:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: CHECK_INTERVAL
+        sync: false
+      - key: PAGE_TIMEOUT
+        sync: false
+      - key: CHROME_PATH
         sync: false
