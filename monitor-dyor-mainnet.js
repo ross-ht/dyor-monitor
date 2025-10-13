@@ -115,11 +115,11 @@ async function getNetworks(page) {
         .filter(Boolean)
     );
 
-    // 🔍 拆分粘连文本
+    // 🔍 拆分粘连文本（新增 Gate / 0G 捕获）
     texts = texts
       .flatMap((t) =>
         t.split(
-          /(?<=[a-z0-9])(?=[A-Z])|(?<=Layer)(?=\d)|(?<=Network)(?=L\d)|(?<=\d)(?=[A-Za-z])/
+          /(?<=[a-z0-9])(?=[A-Z])|(?<=Layer)(?=\d)|(?<=Network)(?=L\d)|(?<=\d)(?=[A-Za-z])|(?<=Gate)(?=\s*Layer|Network)|(?<=0)(?=G)/
         )
       )
       .filter(Boolean);
@@ -128,9 +128,8 @@ async function getNetworks(page) {
       return s.replace(/\s+/g, " ").trim();
     }
 
-    // === 改进正则匹配（包括 Gate / 0G 特例） ===
     const regex =
-      /\b([A-Za-z0-9][A-Za-z0-9\s\-]*(?:Layer\s?\d+\s*)?(?:Mainnet|Network|Chain)(?:\s*L\d+)?|X\s*Layer\s*Mainnet|Gate\s*Layer\s*L2|Gate\s*Network\s*L1|0G\s*Mainnet)\b/gi;
+      /\b(0G\s*Mainnet|Gate\s*Layer\s*L2|Gate\s*Network\s*L1|[A-Za-z0-9][A-Za-z0-9\s\-]*(?:Layer\s?\d+\s*)?(?:Mainnet|Network|Chain)(?:\s*L\d+)?)\b/gi;
 
     let results = [];
     for (const text of texts) {
@@ -140,7 +139,6 @@ async function getNetworks(page) {
       }
     }
 
-    // === 黑白名单 ===
     const STOP_WORDS = [
       "select a network", "connect wallet", "okb", "uni", "okx", "wallet",
       "bridge", "swap", "stake", "pool", "settings", "dyor", "home", "launch",
@@ -150,13 +148,8 @@ async function getNetworks(page) {
     ];
 
     const SAFE_WORDS = [
-      "okb network",
-      "uni network",
-      "dyor network",
-      "gate layer l2",
-      "gate network l1",
-      "x layer mainnet",
-      "0g mainnet"
+      "okb network", "uni network", "dyor network",
+      "gate layer l2", "gate network l1", "x layer mainnet", "0g mainnet"
     ];
 
     let filtered = results
@@ -216,19 +209,24 @@ async function monitor() {
       if (!ok) continue;
 
       const networks = await getNetworks(page);
-      if (!lastNetworks.length && networks.length) {
-        await sendTelegramMessage(
-          `✅ 当前检测到 ${networks.length} 个主网：\n${networks
-            .map((n) => `• ${n}`)
-            .join("\n")}`
-        );
-      }
 
-      if (networks.length && JSON.stringify(networks) !== JSON.stringify(lastNetworks)) {
-        const newOnes = networks.filter((n) => !lastNetworks.includes(n));
-        if (newOnes.length)
-          await sendTelegramMessage(`🚀 发现新主网：${newOnes.join(", ")}`);
-        lastNetworks = networks;
+      if (networks.length) {
+        const oldList = JSON.stringify(lastNetworks);
+        const newList = JSON.stringify(networks);
+
+        if (oldList !== newList) {
+          const newOnes = networks.filter((n) => !lastNetworks.includes(n));
+          const removed = lastNetworks.filter((n) => !networks.includes(n));
+
+          let changeMsg = "";
+          if (newOnes.length) changeMsg += `🚀 发现新主网：${newOnes.join(", ")}\n`;
+          if (removed.length) changeMsg += `❌ 移除主网：${removed.join(", ")}\n`;
+
+          await sendTelegramMessage(changeMsg || "⚠️ 主网列表发生变化。");
+          lastNetworks = networks;
+        } else {
+          console.log("🔁 无主网变化，不重复推送。");
+        }
       }
 
       failureCount = 0;
