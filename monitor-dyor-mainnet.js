@@ -1,39 +1,42 @@
 import puppeteer from "puppeteer";
 import axios from "axios";
-import { execSync } from "child_process";
 import fs from "fs";
+import { execSync } from "child_process";
 
+// === 环境变量 ===
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-const CHECK_INTERVAL = parseInt(process.env.CHECK_INTERVAL || "60000", 10);
-const PAGE_TIMEOUT = parseInt(process.env.PAGE_TIMEOUT || "30000", 10);
+const CHECK_INTERVAL = process.env.CHECK_INTERVAL
+  ? parseInt(process.env.CHECK_INTERVAL)
+  : 30000;
+const PAGE_TIMEOUT = process.env.PAGE_TIMEOUT
+  ? parseInt(process.env.PAGE_TIMEOUT)
+  : 15000;
 
-let previousNetworks = [];
+let lastSent = 0;
+let lastNetworks = [];
 let failureCount = 0;
 
-// Telegram 推送函数
-let lastSent = 0;
-
+// === Telegram 消息函数（带限流） ===
 async function sendTelegramMessage(message) {
-  const now = Date.now();
-  if (now - lastSent < 1500) {
-    await new Promise((r) => setTimeout(r, 1500)); // 每条间隔 ≥1.5 秒
-  }
-  lastSent = now;
-
   try {
-    await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-      chat_id: TELEGRAM_CHAT_ID,
-      text: message,
-      parse_mode: "Markdown"
-    });
+    const now = Date.now();
+    if (now - lastSent < 1500) await new Promise((r) => setTimeout(r, 1500));
+    lastSent = now;
+    await axios.post(
+      `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
+      {
+        chat_id: TELEGRAM_CHAT_ID,
+        text: message,
+      }
+    );
     console.log("📨 Telegram 推送成功:", message);
   } catch (err) {
-    console.error("⚠️ Telegram 推送失败:", err.message);
+    console.warn("⚠️ Telegram 推送失败:", err.message || err);
   }
 }
 
-// 启动 Puppeteer
+// === Chromium 自动下载检测 ===
 async function ensureChromiumInstalled() {
   const chromeDir = "./.local-chromium";
   const chromePath = `${chromeDir}/chrome/linux-141.0.7390.76/chrome-linux64/chrome`;
@@ -45,7 +48,10 @@ async function ensureChromiumInstalled() {
 
   console.log("⬇️ 正在下载 Chromium...");
   execSync(`mkdir -p ${chromeDir}`, { stdio: "inherit" });
-  execSync(`PUPPETEER_CACHE_DIR=${chromeDir} npx puppeteer browsers install chrome`, { stdio: "inherit" });
+  execSync(
+    `PUPPETEER_CACHE_DIR=${chromeDir} npx puppeteer browsers install chrome`,
+    { stdio: "inherit" }
+  );
 
   if (!fs.existsSync(chromePath)) {
     throw new Error("❌ Chromium 下载失败！");
@@ -55,10 +61,10 @@ async function ensureChromiumInstalled() {
   return chromePath;
 }
 
+// === Puppeteer 启动函数 ===
 async function launchBrowser() {
   try {
     const chromePath = await ensureChromiumInstalled();
-
     const browser = await puppeteer.launch({
       headless: true,
       executablePath: chromePath,
@@ -69,10 +75,9 @@ async function launchBrowser() {
         "--disable-dev-shm-usage",
         "--disable-extensions",
         "--no-zygote",
-        "--single-process"
-      ]
+        "--single-process",
+      ],
     });
-
     return browser;
   } catch (err) {
     console.error("🚫 启动 Chrome 失败:", err.message);
@@ -81,62 +86,86 @@ async function launchBrowser() {
   }
 }
 
-// 抓取主网列表
-async function getNetworks() {
-  const browser = await launchBrowser();
-  const page = await browser.newPage();
+// === 主网抓取逻辑（自动展开 + 防止哈希变动） ===
+async function getNetworks(page) {
+  try {
+    await page.waitForSelector("body", { timeout: PAGE_TIMEOUT });
 
-  await page.goto("https://dyorswap.org", { waitUntil: "networkidle2", timeout: PAGE_TIMEOUT });
+    // 尝试展开主网选择菜单
+    const toggleSelector =
+      'div[class*="sc-de7e8801-1"][class*="sc-1080dffc-0"][class*="sc-ec57e2f1-0"]';
+    const exists = await page.$(toggleSelector);
+    if (exists) {
+      await page.click(toggleSelector);
+      await page.waitForTimeout(1000); // 等待动画
+    }
 
-  const networks = await page.$$eval("div.sc-de7e8801-1.fSxDht", (elements) =>
-    elements.map((el) => el.textContent.trim()).filter(Boolean)
-  );
+    // 获取主网名
+    const networks = await page.$$eval('div[class*="sc-de7e8801-1"]', (els) => {
+      return Array.from(
+        new Set(
+          els
+            .map((el) => el.textContent?.trim())
+            .filter((t) => t && t.length > 2 && /mainnet/i.test(t))
+        )
+      );
+    });
 
-  await browser.close();
-  return networks;
+    if (!networks.length) {
+      console.warn("⚠️ 未抓取到主网，可能 DOM 结构变更。");
+      return [];
+    }
+
+    console.log("📋 当前主网列表:", networks);
+    return networks;
+  } catch (err) {
+    console.error("❌ 主网抓取失败:", err.message);
+    return [];
+  }
 }
 
-// 监控循环
+// === 主监控逻辑 ===
 async function monitor() {
   console.log("🚀 DYOR 主网监控已启动...");
   await sendTelegramMessage("✅ DYOR 主网监控脚本已启动，开始检测主网变化。");
 
   while (true) {
+    const now = new Date().toLocaleString("zh-CN", { hour12: false });
+    console.log(`🕒 ${now} - 检查主网变化中...`);
+    await sendTelegramMessage(`🕒 监控心跳：正在检查主网变化中... (${now})`);
+
+    let browser = null;
     try {
-      const now = new Date().toLocaleString();
-      console.log(`🕒 ${now} - 检查主网变化中...`);
-      await sendTelegramMessage(`🕒 监控心跳：正在检查主网变化中... (${now})`);
+      browser = await launchBrowser();
+      const page = await browser.newPage();
+      await page.goto("https://dyorswap.org", { timeout: PAGE_TIMEOUT });
+      await page.waitForTimeout(2000);
 
-      const networks = await getNetworks();
+      const networks = await getNetworks(page);
 
-      if (previousNetworks.length === 0) {
-        previousNetworks = networks;
-        console.log("📋 初始主网列表:", networks);
-      } else if (JSON.stringify(networks) !== JSON.stringify(previousNetworks)) {
-        const added = networks.filter((n) => !previousNetworks.includes(n));
-        const removed = previousNetworks.filter((n) => !networks.includes(n));
-
-        let msg = "🚨 检测到主网变化！\n";
-        if (added.length) msg += `🟢 新增主网: ${added.join(", ")}\n`;
-        if (removed.length) msg += `🔴 移除主网: ${removed.join(", ")}\n`;
-
-        await sendTelegramMessage(msg);
-        previousNetworks = networks;
+      // 检测变化
+      if (networks.length && JSON.stringify(networks) !== JSON.stringify(lastNetworks)) {
+        const newOnes = networks.filter((n) => !lastNetworks.includes(n));
+        if (newOnes.length) {
+          await sendTelegramMessage(`🚀 发现新主网：${newOnes.join(", ")}`);
+        }
+        lastNetworks = networks;
       }
 
       failureCount = 0;
-      await new Promise((r) => setTimeout(r, CHECK_INTERVAL));
     } catch (err) {
-      console.error("⚠️ 监控循环错误:", err.message);
       failureCount++;
-      if (failureCount >= 5) {
+      console.error("⚠️ 监控循环错误:", err.message);
+      if (failureCount === 1 || failureCount % 5 === 0) {
         await sendTelegramMessage(`⚠️ 网络异常（连续 ${failureCount} 次失败），请检查服务。`);
-        failureCount = 0;
       }
-      await new Promise((r) => setTimeout(r, 5000));
+    } finally {
+      if (browser) await browser.close();
     }
+
+    await new Promise((r) => setTimeout(r, CHECK_INTERVAL));
   }
 }
 
-// 启动监控
+// === 启动主程序 ===
 monitor();
