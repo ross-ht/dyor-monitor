@@ -106,7 +106,7 @@ async function getNetworks(page) {
     const toggle = await page.$(toggleSelector);
     if (toggle) {
       await toggle.click();
-      await delay(800);
+      await delay(1500); // 增加延迟以确保菜单加载完毕
     }
 
     // 提取所有文本（处理换行+拼接）
@@ -116,16 +116,23 @@ async function getNetworks(page) {
         .map((t) => t.trim())
         .filter(Boolean)
     );
-    texts = texts.flatMap((t) => t.split(/(?<=[a-z])(?=[A-Z])/)).filter(Boolean);
 
-    // === 统一清洗 ===
+    // 处理驼峰与数字粘连（GateLayerL2 / NetworkL1）
+    texts = texts
+      .flatMap((t) =>
+        t.split(
+          /(?<=[a-z0-9])(?=[A-Z])|(?<=Layer)(?=\d)|(?<=Network)(?=L\d)/
+        )
+      )
+      .filter(Boolean);
+
     function normalize(s) {
       return s.replace(/\s+/g, " ").trim();
     }
 
     // === 改进版正则 ===
     const regex =
-      /\b([A-Za-z0-9][A-Za-z0-9\s\-]*(?:Layer\s?\d+\s*)?(?:Mainnet|Network|Chain)(?:\s*L\d+)?|X\s*Layer\s*Mainnet)\b/gi;
+      /\b([A-Za-z0-9][A-Za-z0-9\s\-]*(?:Layer\s?\d+\s*)?(?:Mainnet|Network|Chain)(?:\s*L\d+)?|X\s*Layer\s*Mainnet|Gate\s*Layer\s*L2|Gate\s*Network\s*L1)\b/gi;
 
     let results = [];
     for (const text of texts) {
@@ -171,7 +178,6 @@ async function getNetworks(page) {
       .filter((x) => !/[|,.:;@]/.test(x))
       .filter((x) => !/\b(with|to|and|for)\b/i.test(x));
 
-    // 去重 + 排序
     const unique = Array.from(new Set(filtered)).sort((a, b) =>
       a.localeCompare(b, "en")
     );
