@@ -3,6 +3,11 @@ import axios from "axios";
 import fs from "fs";
 import { execSync } from "child_process";
 
+// === 延迟函数 ===
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // === 环境变量 ===
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
@@ -17,7 +22,7 @@ let failureCount = 0;
 async function sendTelegramMessage(message) {
   try {
     const now = Date.now();
-    if (now - lastSent < 1500) await new Promise((r) => setTimeout(r, 1500));
+    if (now - lastSent < 1500) await delay(1500);
     lastSent = now;
     await axios.post(
       `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
@@ -77,13 +82,13 @@ async function safeGoto(page, url, maxRetries = 5) {
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: 120000 });
       await page.waitForSelector("body", { timeout: 20000 });
       console.log("✅ 页面加载成功");
-      await new Promise((r) => setTimeout(r, 4000));
+      await delay(4000);
       return true;
     } catch (err) {
       console.warn(`⚠️ 加载失败（第 ${i + 1} 次尝试）: ${err.message}`);
       if (i < maxRetries - 1) {
         console.log("⏳ 3 秒后重试...");
-        await new Promise((r) => setTimeout(r, 3000));
+        await delay(3000);
       } else {
         await sendTelegramMessage("⚠️ 页面加载失败，无法访问目标网站。");
         return false;
@@ -103,7 +108,7 @@ async function getNetworks(page) {
     const toggle = await page.$(toggleSelector);
     if (toggle) {
       await toggle.click();
-      await page.waitForTimeout(2000);
+      await delay(2000);
     }
 
     // 📸 截图调试
@@ -192,7 +197,7 @@ async function monitor() {
       if (browser) await browser.close();
     }
 
-    await new Promise((r) => setTimeout(r, CHECK_INTERVAL));
+    await delay(CHECK_INTERVAL);
   }
 }
 
