@@ -108,6 +108,34 @@ async function getNetworks(page) {
       await delay(1500);
     }
 
+    // 滚动菜单，防止虚拟化未加载完
+    try {
+      const menuRootSelectors = [
+        '[role="menu"]',
+        '[role="listbox"]',
+        '[data-state="open"]',
+        '.menu',
+        '.dropdown',
+        '.popover',
+      ];
+      for (const sel of menuRootSelectors) {
+        const handle = await page.$(sel);
+        if (!handle) continue;
+        await page.evaluate(async (el) => {
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          let last = -1;
+          for (let i = 0; i < 30; i++) {
+            el.scrollTop = el.scrollHeight;
+            await sleep(120);
+            if (el.scrollTop === last) break;
+            last = el.scrollTop;
+          }
+          el.scrollTop = 0;
+          await sleep(80);
+        }, handle);
+      }
+    } catch {}
+
     let texts = await page.$$eval("*", (nodes) =>
       nodes
         .map((n) => (n.innerText || n.textContent || "").replace(/\n+/g, " "))
@@ -115,18 +143,16 @@ async function getNetworks(page) {
         .filter(Boolean)
     );
 
-    // 🔍 拆分粘连文本（新增 Gate / 0G 捕获）
+    // 拆分粘连文本（不再分开 0G）
     texts = texts
       .flatMap((t) =>
         t.split(
-          /(?<=[a-z0-9])(?=[A-Z])|(?<=Layer)(?=\d)|(?<=Network)(?=L\d)|(?<=\d)(?=[A-Za-z])|(?<=Gate)(?=\s*Layer|Network)|(?<=0)(?=G)/
+          /(?<=[a-z0-9])(?=[A-Z])|(?<=Layer)(?=\d)|(?<=Network)(?=L\d)|(?<=\d)(?=[A-Za-z])|(?<=Gate)(?=\s*Layer|Network)/
         )
       )
       .filter(Boolean);
 
-    function normalize(s) {
-      return s.replace(/\s+/g, " ").trim();
-    }
+    const normalize = (s) => s.replace(/\s+/g, " ").trim();
 
     const regex =
       /\b(0G\s*Mainnet|Gate\s*Layer\s*L2|Gate\s*Network\s*L1|[A-Za-z0-9][A-Za-z0-9\s\-]*(?:Layer\s?\d+\s*)?(?:Mainnet|Network|Chain)(?:\s*L\d+)?)\b/gi;
@@ -164,7 +190,8 @@ async function getNetworks(page) {
             !STOP_WORDS.some((w) => new RegExp(`\\b${w}\\b`, "i").test(x))
           )
       )
-      .filter((x) => /(Mainnet|Network|Layer\s?\d+|Chain)$/i.test(x))
+      // ✅ 放宽末尾规则：允许 Layer L2 / Network L1 结尾
+      .filter((x) => /(Mainnet$|Network(?:\s*L\d+)?$|Layer\s?\d+$|Chain$)/i.test(x))
       .filter((x) => !/[|,.:;@]/.test(x))
       .filter((x) => !/\b(with|to|and|for)\b/i.test(x));
 
@@ -176,10 +203,10 @@ async function getNetworks(page) {
 
     if (unique.length) {
       const stamp = new Date().toLocaleString("zh-CN", { hour12: false });
-      const msg = `📋 当前主网列表（${stamp}）：\n${unique
-        .map((n) => `• ${n}`)
-        .join("\n")}`;
-      await sendTelegramMessage(msg);
+      // const msg = `📋 当前主网列表（${stamp}）：\n${unique
+      //   .map((n) => `• ${n}`)
+      //   .join("\n")}`;
+      // await sendTelegramMessage(msg);
     } else {
       await sendTelegramMessage("⚠️ 未检测到任何主网，请检查页面结构是否有更新。");
     }
@@ -199,7 +226,7 @@ async function monitor() {
   while (true) {
     const now = new Date().toLocaleString("zh-CN", { hour12: false });
     console.log(`🕒 ${now} - 检查主网变化中...`);
-    await sendTelegramMessage(`🕒 监控心跳：正在检查主网变化中... (${now})`);
+    // await sendTelegramMessage(`🕒 监控心跳：正在检查主网变化中... (${now})`);
 
     let browser = null;
     try {
