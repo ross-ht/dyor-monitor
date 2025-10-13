@@ -1,6 +1,7 @@
 import puppeteer from "puppeteer";
 import axios from "axios";
 import { execSync } from "child_process";
+import fs from "fs";
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
@@ -34,22 +35,33 @@ async function sendTelegramMessage(message) {
 
 // 启动 Puppeteer
 async function ensureChromiumInstalled() {
-  const path = "/opt/render/project/src/.cache/puppeteer/chrome/linux-141.0.7390.76/chrome-linux64/chrome";
-  try {
-    execSync(`test -f ${path}`);
+  const chromeDir = "./.local-chromium";
+  const chromePath = `${chromeDir}/chrome/linux-141.0.7390.76/chrome-linux64/chrome`;
+
+  if (fs.existsSync(chromePath)) {
     console.log("✅ Chromium 已存在，无需重新下载。");
-  } catch {
-    console.log("⬇️ 正在下载 Chromium...");
-    execSync("npx puppeteer browsers install chrome", { stdio: "inherit" });
+    return chromePath;
   }
+
+  console.log("⬇️ 正在下载 Chromium...");
+  execSync(`mkdir -p ${chromeDir}`, { stdio: "inherit" });
+  execSync(`PUPPETEER_CACHE_DIR=${chromeDir} npx puppeteer browsers install chrome`, { stdio: "inherit" });
+
+  if (!fs.existsSync(chromePath)) {
+    throw new Error("❌ Chromium 下载失败！");
+  }
+
+  console.log("✅ Chromium 下载完成。");
+  return chromePath;
 }
 
 async function launchBrowser() {
   try {
-    await ensureChromiumInstalled();
+    const chromePath = await ensureChromiumInstalled();
+
     const browser = await puppeteer.launch({
       headless: true,
-      executablePath: puppeteer.executablePath(),
+      executablePath: chromePath,
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
@@ -60,6 +72,7 @@ async function launchBrowser() {
         "--single-process"
       ]
     });
+
     return browser;
   } catch (err) {
     console.error("🚫 启动 Chrome 失败:", err.message);
