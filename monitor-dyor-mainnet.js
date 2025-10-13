@@ -210,12 +210,27 @@ async function getNetworks(page) {
       .filter(x => !/^x layer mainnetokb$/i.test(x)) // 处理你日志里拼接的特殊噪声
       .filter(x => !/connect$/i.test(x));
 
-    // 去重并按字母排序（可选）
-    const unique = Array.from(new Set(picked)).sort((a, b) =>
-      a.localeCompare(b, "en")
-    );
+    // 进一步拆解拼接项（防止多个主网连在一起）
+    let splitExpanded = [];
+    for (const item of picked) {
+      if (/\s(Mainnet|Network)\s/i.test(item)) {
+        const parts = item.split(/(?<=Mainnet|Network)\s+/i).filter(Boolean);
+      splitExpanded.push(...parts);
+      } else {
+        splitExpanded.push(item);
+      }
+    }
 
-    // 输出 & 推送
+    // 清理与去重
+    const unique = Array.from(
+      new Set(
+        splitExpanded
+          .map(normalize)
+          .filter(x => x && !STOP_WORDS.has(x.toLowerCase()))
+      )
+    ).sort((a, b) => a.localeCompare(b, "en"));
+
+    // 输出与推送
     console.log("📋 当前主网列表:", unique);
     if (unique.length) {
       const stamp = new Date().toLocaleString("zh-CN", { hour12: false });
