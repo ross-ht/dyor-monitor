@@ -6,7 +6,8 @@ services:
     plan: free
     buildCommand: |
       npm install
-      npx puppeteer browsers install chrome
+      mkdir -p .cache/puppeteer
+      PUPPETEER_CACHE_DIR=.cache/puppeteer npx puppeteer browsers install chrome
     startCommand: node server.js
     autoDeploy: true
     envVars:
@@ -18,4 +19,6 @@ services:
         sync: false
       - key: PAGE_TIMEOUT
         sync: false
+      - key: PUPPETEER_CACHE_DIR
+        value: /opt/render/project/src/.cache/puppeteer
   
