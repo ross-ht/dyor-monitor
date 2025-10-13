@@ -17,13 +17,12 @@ let failureCount = 0;
 async function sendTelegramMessage(message) {
   try {
     const now = Date.now();
-    if (now - lastSent < 1500) await new Promise(r => setTimeout(r, 1500));
+    if (now - lastSent < 1500) await new Promise((r) => setTimeout(r, 1500));
     lastSent = now;
-
-    await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-      chat_id: TELEGRAM_CHAT_ID,
-      text: message,
-    });
+    await axios.post(
+      `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
+      { chat_id: TELEGRAM_CHAT_ID, text: message }
+    );
     console.log("📨 Telegram 推送成功:", message);
   } catch (err) {
     console.warn("⚠️ Telegram 推送失败:", err.message || err);
@@ -34,15 +33,13 @@ async function sendTelegramMessage(message) {
 async function ensureChromiumInstalled() {
   const chromeDir = "./.local-chromium";
   const chromePath = `${chromeDir}/chrome/linux-141.0.7390.76/chrome-linux64/chrome`;
-
-  if (fs.existsSync(chromePath)) {
-    console.log("✅ Chromium 已存在，无需重新下载。");
-    return chromePath;
-  }
+  if (fs.existsSync(chromePath)) return chromePath;
 
   console.log("⬇️ 正在下载 Chromium...");
   execSync(`mkdir -p ${chromeDir}`, { stdio: "inherit" });
-  execSync(`PUPPETEER_CACHE_DIR=${chromeDir} npx puppeteer browsers install chrome`, { stdio: "inherit" });
+  execSync(`PUPPETEER_CACHE_DIR=${chromeDir} npx puppeteer browsers install chrome`, {
+    stdio: "inherit",
+  });
   if (!fs.existsSync(chromePath)) throw new Error("❌ Chromium 下载失败！");
   console.log("✅ Chromium 下载完成。");
   return chromePath;
@@ -72,21 +69,21 @@ async function launchBrowser() {
   }
 }
 
-// === 安全访问页面 ===
+// === 页面访问重试逻辑 ===
 async function safeGoto(page, url, maxRetries = 5) {
   for (let i = 0; i < maxRetries; i++) {
     try {
       console.log(`🌐 正在访问页面（第 ${i + 1} 次尝试）...`);
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 180000 });
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 120000 });
       await page.waitForSelector("body", { timeout: 20000 });
       console.log("✅ 页面加载成功");
-      await new Promise(r => setTimeout(r, 5000));
+      await new Promise((r) => setTimeout(r, 4000));
       return true;
     } catch (err) {
       console.warn(`⚠️ 加载失败（第 ${i + 1} 次尝试）: ${err.message}`);
       if (i < maxRetries - 1) {
         console.log("⏳ 3 秒后重试...");
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise((r) => setTimeout(r, 3000));
       } else {
         await sendTelegramMessage("⚠️ 页面加载失败，无法访问目标网站。");
         return false;
@@ -95,26 +92,7 @@ async function safeGoto(page, url, maxRetries = 5) {
   }
 }
 
-// === 文本清洗 ===
-function normalize(s) {
-  return s.replace(/\s+/g, " ").replace(/[^\S\r\n]+/g, " ").trim();
-}
-
-const STOP_WORDS = new Set([
-  "select a network", "connect wallet", "okb", "uni", "okx", "wallet",
-  "bridge", "swap", "stake", "pool", "settings", "dyor", "launch", "home"
-]);
-
-// === 递归提取主网文本 ===
-function extractFromBlob(text) {
-  const out = [];
-  const re = /\b([A-Z][A-Za-z0-9\s\-]*(?:Mainnet|Network|Layer\s?(?:L\d+|\d+)|Chain|Hub|Verse))\b/g;
-  let m;
-  while ((m = re.exec(text)) !== null) out.push(normalize(m[1]));
-  return out;
-}
-
-// === 抓取主网 ===
+// === 主网抓取逻辑（纯文本提取版） ===
 async function getNetworks(page) {
   try {
     await page.waitForSelector("body", { timeout: 15000 });
@@ -125,63 +103,43 @@ async function getNetworks(page) {
     const toggle = await page.$(toggleSelector);
     if (toggle) {
       await toggle.click();
-      await page.waitForTimeout(2000); // 等待动画结束
-
-      // ✅ 强制展开所有隐藏项
-      await page.evaluate(() => {
-        document.querySelectorAll('*').forEach(el => {
-          if (el.textContent && /Mainnet|Network|Layer|Chain/i.test(el.textContent)) {
-            el.style.display = 'block';
-            el.style.visibility = 'visible';
-            el.style.opacity = '1';
-          }
-        });
-      });
+      await page.waitForTimeout(2000);
     }
 
-    // ✅ 递归遍历 DOM + Shadow DOM
-    const texts = await page.evaluate(() => {
-      const collectTexts = (root) => {
-        let out = [];
-        root.querySelectorAll('*').forEach(el => {
-          if (el.shadowRoot) out.push(...collectTexts(el.shadowRoot));
-          const txt = el.innerText || el.textContent || '';
-          if (txt && /(Mainnet|Network|Layer|Chain)/i.test(txt)) out.push(txt.trim());
-        });
-        return out;
-      };
-      return collectTexts(document);
-    });
+    // 📸 截图调试
+    await page.screenshot({ path: "menu_debug.png", fullPage: true });
+    console.log("📸 已截图保存 menu_debug.png 以便调试。");
 
-    // === 提取与清洗 ===
-    let picked = [];
-    for (const t of texts) {
-      const clean = normalize(t);
-      if (!clean || STOP_WORDS.has(clean.toLowerCase())) continue;
-      if (clean.length <= 50 && /(Mainnet|Network|Layer|Chain)/i.test(clean))
-        picked.push(clean);
-      else picked.push(...extractFromBlob(clean));
-    }
+    // 抓取整个页面渲染文本（包括 Portal / Shadow DOM）
+    const fullText = await page.evaluate(() => document.body.innerText);
 
-    const splitExpanded = [];
-    for (const item of picked) {
-      const parts = item.split(/(?<=Mainnet|Network|Layer\s?(?:L\d+|\d+)|Chain|Hub|Verse)\b\s*/i).filter(Boolean);
-      splitExpanded.push(...parts);
-    }
+    // 用正则提取所有可能的主网名称
+    const regex =
+      /\b([A-Z][A-Za-z0-9\s\-]*(?:Mainnet|Network|Layer\s?(?:L\d+|\d+)|Chain|Hub|Verse))\b/g;
+    const matches = [];
+    let m;
+    while ((m = regex.exec(fullText)) !== null) matches.push(m[1].trim());
 
+    // 清洗去重
+    const STOP_WORDS =
+      /select|okb|connect|wallet|swap|bridge|stake|pool|settings|dyor|launch|home/i;
     const unique = Array.from(
-      new Set(splitExpanded
-        .map(normalize)
-        .filter(x => x && x.length >= 4 && x.length <= 40)
-        .filter(x => !STOP_WORDS.has(x.toLowerCase()))
-        .filter(x => /^[A-Z]/.test(x))
+      new Set(
+        matches
+          .map((x) => x.replace(/\s+/g, " ").trim())
+          .filter((x) => x.length >= 3 && x.length <= 40)
+          .filter((x) => !STOP_WORDS.test(x))
       )
     ).sort((a, b) => a.localeCompare(b, "en"));
 
     console.log("📋 当前主网列表:", unique);
     if (unique.length) {
       const stamp = new Date().toLocaleString("zh-CN", { hour12: false });
-      await sendTelegramMessage(`📋 当前主网列表（${stamp}）：\n${unique.map(n => `• ${n}`).join("\n")}`);
+      await sendTelegramMessage(
+        `📋 当前主网列表（${stamp}）：\n${unique.map((n) => `• ${n}`).join("\n")}`
+      );
+    } else {
+      await sendTelegramMessage("⚠️ 未检测到任何主网，请检查页面结构是否有更新。");
     }
 
     return unique;
@@ -209,13 +167,16 @@ async function monitor() {
       if (!ok) continue;
 
       const networks = await getNetworks(page);
-
       if (!lastNetworks.length && networks.length) {
-        await sendTelegramMessage(`✅ 当前检测到 ${networks.length} 个主网：\n${networks.map(n => `• ${n}`).join("\n")}`);
+        await sendTelegramMessage(
+          `✅ 当前检测到 ${networks.length} 个主网：\n${networks
+            .map((n) => `• ${n}`)
+            .join("\n")}`
+        );
       }
 
       if (networks.length && JSON.stringify(networks) !== JSON.stringify(lastNetworks)) {
-        const newOnes = networks.filter(n => !lastNetworks.includes(n));
+        const newOnes = networks.filter((n) => !lastNetworks.includes(n));
         if (newOnes.length)
           await sendTelegramMessage(`🚀 发现新主网：${newOnes.join(", ")}`);
         lastNetworks = networks;
@@ -231,7 +192,7 @@ async function monitor() {
       if (browser) await browser.close();
     }
 
-    await new Promise(r => setTimeout(r, CHECK_INTERVAL));
+    await new Promise((r) => setTimeout(r, CHECK_INTERVAL));
   }
 }
 
