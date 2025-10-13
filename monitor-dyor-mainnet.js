@@ -1,4 +1,4 @@
-// monitor-dyor-mainnet.js
+// monitor-dyor-mainnet.js (v2.2)
 import puppeteer from "puppeteer";
 import axios from "axios";
 import fs from "fs";
@@ -7,12 +7,8 @@ import { execSync } from "child_process";
 // === 环境变量 ===
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-const CHECK_INTERVAL = process.env.CHECK_INTERVAL
-  ? parseInt(process.env.CHECK_INTERVAL)
-  : 30000;
-const PAGE_TIMEOUT = process.env.PAGE_TIMEOUT
-  ? parseInt(process.env.PAGE_TIMEOUT)
-  : 15000;
+const CHECK_INTERVAL = parseInt(process.env.CHECK_INTERVAL || "30000", 10);
+const PAGE_TIMEOUT = parseInt(process.env.PAGE_TIMEOUT || "15000", 10);
 
 let lastSent = 0;
 let lastNetworks = [];
@@ -26,10 +22,7 @@ async function sendTelegramMessage(message) {
     lastSent = now;
     await axios.post(
       `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
-      {
-        chat_id: TELEGRAM_CHAT_ID,
-        text: message,
-      }
+      { chat_id: TELEGRAM_CHAT_ID, text: message }
     );
     console.log("📨 Telegram 推送成功:", message);
   } catch (err) {
@@ -37,7 +30,7 @@ async function sendTelegramMessage(message) {
   }
 }
 
-// === 确保 Chromium 存在 ===
+// === 确保 Chromium 已安装 ===
 async function ensureChromiumInstalled() {
   const chromeDir = "./.local-chromium";
   const chromePath = `${chromeDir}/chrome/linux-141.0.7390.76/chrome-linux64/chrome`;
@@ -83,13 +76,13 @@ async function launchBrowser() {
   }
 }
 
-// === 抓取主网列表 ===
+// === 抓取主网列表（v2.2） ===
 async function getNetworks(page) {
   try {
     await page.setViewport({ width: 1280, height: 900 });
     await page.waitForSelector("body", { timeout: 15000 });
 
-    // 打开主网菜单
+    // 打开主网选择
     const toggleSelector =
       'div[class*="sc-de7e8801-1"][class*="sc-1080dffc-0"], div[class*="sc-de7e8801-1"][class*="sc-ec57e2f1-0"]';
     const toggle = await page.$(toggleSelector);
@@ -98,33 +91,22 @@ async function getNetworks(page) {
       await new Promise((r) => setTimeout(r, 1500));
     }
 
-    // 精准提取所有主网名称
-    await page.waitForSelector('button.sc-d6870169-1 div[class*="bvHJys"]', {
-      timeout: 8000,
-    });
-
+    // ✅ 通用匹配所有主网项
+    await page.waitForSelector(
+      'button.sc-d6870169-1 div[class*="sc-118b6623-0"]',
+      { timeout: 8000 }
+    );
     const networks = await page.$$eval(
-      'button.sc-d6870169-1 div[class*="bvHJys"]',
+      'button.sc-d6870169-1 div[class*="sc-118b6623-0"]',
       (nodes) => nodes.map((n) => n.textContent.trim()).filter(Boolean)
     );
 
-    // 去重 & 排序
+    // 去重 + 排序
     const unique = Array.from(new Set(networks)).sort((a, b) =>
       a.localeCompare(b, "en")
     );
 
     console.log("📋 当前主网列表:", unique);
-
-    // 推送到 Telegram
-    if (unique.length) {
-      const stamp = new Date().toLocaleString("zh-CN", { hour12: false });
-      // const msg = `📋 当前主网列表（${stamp}）：\n${unique
-      //   .map((n) => `• ${n}`)
-      //   .join("\n")}`;
-      // await sendTelegramMessage(msg);
-    } else {
-      await sendTelegramMessage("⚠️ 未检测到任何主网，请检查页面结构是否有更新。");
-    }
 
     return unique;
   } catch (err) {
@@ -138,10 +120,36 @@ async function monitor() {
   console.log("🚀 DYOR 主网监控已启动...");
   await sendTelegramMessage("✅ DYOR 主网监控脚本已启动，开始检测主网变化。");
 
+  // 启动时先抓一次并推送汇总
+  try {
+    const browser = await launchBrowser();
+    const page = await browser.newPage();
+    await page.goto("https://dyorswap.org", {
+      timeout: 60000,
+      waitUntil: "networkidle2",
+    });
+    await new Promise((r) => setTimeout(r, 2000));
+    const initialNetworks = await getNetworks(page);
+    if (initialNetworks.length > 0) {
+      await sendTelegramMessage(
+        `✅ 初始检测成功，共发现 ${initialNetworks.length} 个主网：\n${initialNetworks
+          .map((n) => `• ${n}`)
+          .join("\n")}`
+      );
+      lastNetworks = initialNetworks;
+    } else {
+      await sendTelegramMessage("⚠️ 启动时未检测到主网，请检查网页结构。");
+    }
+    await browser.close();
+  } catch (err) {
+    console.error("⚠️ 启动初次检测失败:", err.message);
+  }
+
+  // === 进入循环监控 ===
   while (true) {
     const now = new Date().toLocaleString("zh-CN", { hour12: false });
     console.log(`🕒 ${now} - 检查主网变化中...`);
-    // await sendTelegramMessage(`🕒 监控心跳：正在检查主网变化中... (${now})`);
+    await sendTelegramMessage(`🕒 监控心跳：正在检查主网变化中... (${now})`);
 
     let browser = null;
     try {
@@ -155,7 +163,7 @@ async function monitor() {
 
       const networks = await getNetworks(page);
 
-      // 检测变化
+      // 检测新增主网
       if (
         networks.length &&
         JSON.stringify(networks) !== JSON.stringify(lastNetworks)
