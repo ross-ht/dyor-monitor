@@ -97,7 +97,7 @@ async function getNetworks(page) {
     const exists = await page.$(toggleSelector);
     if (exists) {
       await page.click(toggleSelector);
-      await page.waitForTimeout(1000); // 等待动画
+      await new Promise(r => setTimeout(r, 1000)); // 等待动画
     }
 
     // 获取主网名
@@ -116,7 +116,18 @@ async function getNetworks(page) {
       return [];
     }
 
+    // console.log("📋 当前主网列表:", networks);
+    // return networks;
     console.log("📋 当前主网列表:", networks);
+
+    // 将当前主网列表推送到 Telegram
+    if (networks.length) {
+      const message =
+        "📋 当前主网列表：\n" +
+        networks.map((n) => `• ${n}`).join("\n");
+      await sendTelegramMessage(message);
+    }
+
     return networks;
   } catch (err) {
     console.error("❌ 主网抓取失败:", err.message);
@@ -139,7 +150,7 @@ async function monitor() {
       browser = await launchBrowser();
       const page = await browser.newPage();
       await page.goto("https://dyorswap.org", { timeout: PAGE_TIMEOUT });
-      await page.waitForTimeout(2000);
+      await new Promise(r => setTimeout(r, 2000));
 
       const networks = await getNetworks(page);
 
