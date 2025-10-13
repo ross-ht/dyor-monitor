@@ -1,5 +1,5 @@
 services:
-  - type: web
+  - type: worker
     name: dyor-monitor
     env: node
     region: singapore           # 或 oregon / frankfurt
