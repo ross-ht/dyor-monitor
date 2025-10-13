@@ -113,7 +113,7 @@ const STOP_WORDS = new Set([
 // 拆分长串里的候选 “XXX Mainnet / XXX Network”
 function extractFromBlob(text) {
   const out = [];
-  const re = /([A-Za-z0-9][A-Za-z0-9\s\-]*(?:Mainnet|Network))(?![A-Za-z])/gi;
+  const re = /([A-Za-z0-9][A-Za-z0-9\s\-]*(?:Mainnet|Network|Layer\s?\d+|Chain))(?![A-Za-z])/gi;
   let m;
   while ((m = re.exec(text)) !== null) {
     out.push(normalize(m[1]));
@@ -195,7 +195,8 @@ async function getNetworks(page) {
     // 仅保留“以 Mainnet/Network 结尾”的项；对长串做正则提取
     let picked = [];
     for (const c of candidates) {
-      if (/(?:Mainnet|Network)$/i.test(c)) {
+      // 匹配更广泛的主网关键词（包括 Layer1/2, Chain）
+      if (/(Mainnet|Network|Layer\s?\d+|Chain)$/i.test(c)) {
         picked.push(c);
       } else if (c.length > 40) {
         picked.push(...extractFromBlob(c));
@@ -213,8 +214,10 @@ async function getNetworks(page) {
     // 进一步拆解拼接项（防止多个主网连在一起）
     let splitExpanded = [];
     for (const item of picked) {
-      if (/\s(Mainnet|Network)\s/i.test(item)) {
-        const parts = item.split(/(?<=Mainnet|Network)\s+/i).filter(Boolean);
+      if (/\s(Mainnet|Network|Layer\s?\d+|Chain)\s/i.test(item)) {
+        const parts = item
+  .split(/(?<=Mainnet|Network|Layer\s?\d+|Chain)\s+/i)
+  .filter(Boolean);
       splitExpanded.push(...parts);
       } else {
         splitExpanded.push(item);
