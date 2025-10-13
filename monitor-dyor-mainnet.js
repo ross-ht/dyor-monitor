@@ -97,7 +97,7 @@ async function safeGoto(page, url, maxRetries = 5) {
   }
 }
 
-// === 主网抓取逻辑（成功版） ===
+// === 主网抓取逻辑（带动态过滤） ===
 async function getNetworks(page) {
   try {
     await page.waitForSelector("body", { timeout: 15000 });
@@ -111,107 +111,74 @@ async function getNetworks(page) {
       await delay(800);
     }
 
-    // 查找菜单节点
-    const menuRootSelectors = [
-      '[role="menu"]',
-      '[role="listbox"]',
-      '[data-state="open"]',
-      '.menu',
-      '.dropdown',
-      '.popover',
-    ];
-    let menuRoot = null;
-    for (const sel of menuRootSelectors) {
-      const el = await page.$(sel);
-      if (el) {
-        menuRoot = el;
-        break;
-      }
-    }
+    // 抓取所有文本节点
+    const texts = await page.$$eval("*", (nodes) =>
+      nodes
+        .map((n) => n.innerText || n.textContent || "")
+        .map((t) => t.trim())
+        .filter(Boolean)
+    );
 
-    let texts = [];
-    const itemSelectors = ["[role='menuitem']", "[role='option']", "li", "button", "a", "div"];
-
-    if (menuRoot) {
-      const sel = itemSelectors.map((s) => `${s}`).join(", ");
-      texts = await menuRoot.$$eval(sel, (nodes) =>
-        nodes
-          .map((n) => n.innerText || n.textContent || "")
-          .map((t) => t.trim())
-          .filter(Boolean)
-      );
-    } else {
-      texts = await page.$$eval("*", (nodes) =>
-        nodes
-          .map((n) => n.innerText || n.textContent || "")
-          .map((t) => t.trim())
-          .filter(Boolean)
-      );
-    }
-
-    // === 归一化函数 ===
     function normalize(s) {
       return s.replace(/\s+/g, " ").trim();
     }
 
-    // === 噪声过滤 ===
-    const STOP_WORDS = new Set([
-      "select a network",
-      "connect wallet",
-      "okb",
-      "uni",
-      "okx",
-      "wallet",
-      "bridge",
-      "swap",
-      "stake",
-      "pool",
-      "settings",
-    ]);
-
-    // === 提取规则 ===
-    const regex = /([A-Za-z0-9][A-Za-z0-9\s\-]*(?:Mainnet|Network|Layer\s?\d+|Chain))/gi;
-    let candidates = [];
-
+    // 提取关键词
+    const regex = /\b([A-Za-z0-9][A-Za-z0-9\s\-]*(?:Mainnet|Network|Layer\s?\d+|Chain))\b/g;
+    let results = [];
     for (const text of texts) {
-      if (text.length <= 40) {
-        candidates.push(normalize(text));
-      } else {
-        let m;
-        while ((m = regex.exec(text)) !== null) {
-          candidates.push(normalize(m[1]));
-        }
+      let match;
+      while ((match = regex.exec(text)) !== null) {
+        results.push(normalize(match[1]));
       }
     }
 
-    // === 拆解拼接项 ===
-    let splitExpanded = [];
-    for (const item of candidates) {
-      if (/\s(Mainnet|Network|Layer\s?\d+|Chain)\s/i.test(item)) {
-        const parts = item
-          .split(/(?<=Mainnet|Network|Layer\s?\d+|Chain)\s+/i)
-          .filter(Boolean);
-        splitExpanded.push(...parts);
-      } else {
-        splitExpanded.push(item);
-      }
-    }
+    // === 动态过滤配置 ===
+    const STOP_WORDS = [
+      "select a network", "connect wallet", "okb", "uni", "okx", "wallet",
+      "bridge", "swap", "stake", "pool", "settings", "dyor", "home", "launch",
+      "create", "try", "install", "with", "click", "works", "to", "extension",
+      "data", "crypto", "me", "involve", "fun", "listed", "private key", "apps",
+      "scan", "connect", "coinbase"
+    ];
 
-    // === 去重清洗 ===
-    const unique = Array.from(
-      new Set(
-        splitExpanded
-          .map(normalize)
-          .filter((x) => x && x.length >= 3 && x.length <= 40)
-          .filter((x) => !STOP_WORDS.has(x.toLowerCase()))
+    // ✅ 白名单（防止误杀）
+    const SAFE_WORDS = [
+      "okb network",
+      "uni network",
+      "dyor network",
+      "gate layer l2",
+      "gate network l1"
+    ];
+
+    // === 动态安全过滤 ===
+    let filtered = results
+      .map(normalize)
+      .filter(
+        (x) =>
+          x &&
+          x.length >= 3 &&
+          x.length <= 40 &&
+          (
+            SAFE_WORDS.some((s) => x.toLowerCase().includes(s)) ||
+            !STOP_WORDS.some((w) => new RegExp(`\\b${w}\\b`, "i").test(x))
+          )
       )
-    ).sort((a, b) => a.localeCompare(b, "en"));
+      .filter((x) => /(Mainnet|Network|Layer\s?\d+|Chain)$/i.test(x))
+      .filter((x) => !/[|,.:;@]/.test(x))
+      .filter((x) => !/\b(with|to|and|for)\b/i.test(x));
+
+    // 去重 + 排序
+    const unique = Array.from(new Set(filtered)).sort((a, b) =>
+      a.localeCompare(b, "en")
+    );
 
     console.log("📋 当前主网列表:", unique);
-
     if (unique.length) {
       const stamp = new Date().toLocaleString("zh-CN", { hour12: false });
-      const msg = `📋 当前主网列表（${stamp}）：\n${unique.map((n) => `• ${n}`).join("\n")}`;
+      const msg = `📋 当前主网列表（${stamp}）：\n${unique
+        .map((n) => `• ${n}`)
+        .join("\n")}`;
       await sendTelegramMessage(msg);
     } else {
       await sendTelegramMessage("⚠️ 未检测到任何主网，请检查页面结构是否有更新。");
