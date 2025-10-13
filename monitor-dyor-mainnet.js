@@ -149,7 +149,7 @@ async function monitor() {
   while (true) {
     const now = new Date().toLocaleString("zh-CN", { hour12: false });
     console.log(`🕒 ${now} - 检查主网变化中...`);
-    await sendTelegramMessage(`🕒 监控心跳：正在检查主网变化中... (${now})`);
+    // await sendTelegramMessage(`🕒 监控心跳：正在检查主网变化中... (${now})`);
 
     let browser = null;
     try {
