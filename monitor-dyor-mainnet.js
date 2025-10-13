@@ -10,11 +10,15 @@ let previousNetworks = [];
 let failureCount = 0;
 
 // Telegram 推送函数
+let lastSent = 0;
+
 async function sendTelegramMessage(message) {
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-    console.error("❌ Telegram 环境变量未设置");
-    return;
+  const now = Date.now();
+  if (now - lastSent < 1500) {
+    await new Promise((r) => setTimeout(r, 1500)); // 每条间隔 ≥1.5 秒
   }
+  lastSent = now;
+
   try {
     await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
       chat_id: TELEGRAM_CHAT_ID,
