@@ -97,12 +97,12 @@ async function safeGoto(page, url, maxRetries = 5) {
   }
 }
 
-// === 主网抓取逻辑（纯文本提取版） ===
+// === 主网抓取逻辑 ===
 async function getNetworks(page) {
   try {
     await page.waitForSelector("body", { timeout: 15000 });
 
-    // 点击主网菜单按钮
+    // 点击右上角“主网选择”按钮
     const toggleSelector =
       'div[class*="sc-de7e8801-1"][class*="sc-1080dffc-0"][class*="sc-ec57e2f1-0"]';
     const toggle = await page.$(toggleSelector);
@@ -111,26 +111,32 @@ async function getNetworks(page) {
       await delay(2000);
     }
 
-    // 📸 截图调试
-    await page.screenshot({ path: "menu_debug.png", fullPage: true });
-    console.log("📸 已截图保存 menu_debug.png 以便调试。");
+    // 抓取所有节点文字
+    const texts = await page.$$eval("*", (nodes) =>
+      nodes
+        .map((n) => n.innerText || n.textContent || "")
+        .map((t) => t.trim())
+        .filter(Boolean)
+    );
 
-    // 抓取整个页面渲染文本（包括 Portal / Shadow DOM）
-    const fullText = await page.evaluate(() => document.body.innerText);
-
-    // 用正则提取所有可能的主网名称
+    // 匹配所有主网关键词（宽松匹配）
     const regex =
-      /\b([A-Z][A-Za-z0-9\s\-]*(?:Mainnet|Network|Layer\s?(?:L\d+|\d+)|Chain|Hub|Verse))\b/g;
-    const matches = [];
-    let m;
-    while ((m = regex.exec(fullText)) !== null) matches.push(m[1].trim());
+      /\b([A-Za-z0-9][A-Za-z0-9\s\-]*(?:Mainnet|Network|Layer\s?(?:L\d+|\d+)|Chain))\b/g;
+    const results = [];
 
-    // 清洗去重
+    for (const text of texts) {
+      let match;
+      while ((match = regex.exec(text)) !== null) {
+        results.push(match[1].trim());
+      }
+    }
+
+    // 清洗与去重
     const STOP_WORDS =
       /select|okb|connect|wallet|swap|bridge|stake|pool|settings|dyor|launch|home/i;
     const unique = Array.from(
       new Set(
-        matches
+        results
           .map((x) => x.replace(/\s+/g, " ").trim())
           .filter((x) => x.length >= 3 && x.length <= 40)
           .filter((x) => !STOP_WORDS.test(x))
@@ -138,6 +144,7 @@ async function getNetworks(page) {
     ).sort((a, b) => a.localeCompare(b, "en"));
 
     console.log("📋 当前主网列表:", unique);
+
     if (unique.length) {
       const stamp = new Date().toLocaleString("zh-CN", { hour12: false });
       await sendTelegramMessage(
