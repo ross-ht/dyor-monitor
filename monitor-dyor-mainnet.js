@@ -25,10 +25,7 @@ async function sendTelegramMessage(message) {
     lastSent = now;
     await axios.post(
       `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
-      {
-        chat_id: TELEGRAM_CHAT_ID,
-        text: message,
-      }
+      { chat_id: TELEGRAM_CHAT_ID, text: message }
     );
     console.log("📨 Telegram 推送成功:", message);
   } catch (err) {
@@ -86,62 +83,64 @@ async function launchBrowser() {
   }
 }
 
-// === 主网抓取逻辑（自动展开 + 防止哈希变动） ===
-// 统一清洗
-function normalize(s) {
-  return s
-    .replace(/\s+/g, " ")
-    .replace(/[^\S\r\n]+/g, " ")
-    .trim();
+// === 安全访问页面（带重试与超时扩展） ===
+async function safeGoto(page, url, maxRetries = 3) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      console.log(`🌐 正在访问页面（第 ${i + 1} 次尝试）...`);
+      await page.goto(url, {
+        waitUntil: "domcontentloaded",
+        timeout: 90000,
+      });
+      await page.waitForSelector("body", { timeout: 20000 });
+      console.log("✅ 页面加载成功");
+      return true;
+    } catch (err) {
+      console.warn(`⚠️ 加载失败（第 ${i + 1} 次尝试）: ${err.message}`);
+      if (i < maxRetries - 1) {
+        console.log("⏳ 3 秒后重试...");
+        await new Promise((r) => setTimeout(r, 3000));
+      } else {
+        console.error("❌ 多次尝试后仍无法加载页面");
+        await sendTelegramMessage("⚠️ 页面加载失败，无法访问目标网站。");
+        return false;
+      }
+    }
+  }
 }
 
-// 黑名单（不会当作主网）
+// === 主网抓取逻辑 ===
+function normalize(s) {
+  return s.replace(/\s+/g, " ").replace(/[^\S\r\n]+/g, " ").trim();
+}
+
 const STOP_WORDS = new Set([
-  "select a network",
-  "connect wallet",
-  "okb",
-  "uni",
-  "okx",
-  "wallet",
-  "bridge",
-  "swap",
-  "stake",
-  "pool",
-  "settings"
+  "select a network", "connect wallet", "okb", "uni", "okx", "wallet",
+  "bridge", "swap", "stake", "pool", "settings"
 ]);
 
-// 拆分长串里的候选 “XXX Mainnet / XXX Network”
 function extractFromBlob(text) {
   const out = [];
   const re = /([A-Za-z0-9][A-Za-z0-9\s\-]*(?:Mainnet|Network|Layer\s?\d+|Chain))(?![A-Za-z])/gi;
   let m;
-  while ((m = re.exec(text)) !== null) {
-    out.push(normalize(m[1]));
-  }
+  while ((m = re.exec(text)) !== null) out.push(normalize(m[1]));
   return out;
 }
 
 async function getNetworks(page) {
   try {
     await page.waitForSelector("body", { timeout: 15000 });
-
-    // 点开右上角“主网选择”
     const toggleSelector =
       'div[class*="sc-de7e8801-1"][class*="sc-1080dffc-0"][class*="sc-ec57e2f1-0"]';
     const toggle = await page.$(toggleSelector);
     if (toggle) {
       await toggle.click();
-      await new Promise(r => setTimeout(r, 800));
+      await new Promise((r) => setTimeout(r, 800));
     }
 
-    // 可能的菜单容器（role 或常见类名 / data-state）
     const menuRootSelectors = [
-      '[role="menu"]',
-      '[role="listbox"]',
-      '[data-state="open"]',
-      '.menu',
-      '.dropdown',
-      '.popover',
+      '[role="menu"]', '[role="listbox"]', '[data-state="open"]',
+      '.menu', '.dropdown', '.popover'
     ];
     let menuRoot = null;
     for (const sel of menuRootSelectors) {
@@ -151,89 +150,57 @@ async function getNetworks(page) {
 
     let texts = [];
     const itemSelectors = [
-      '[role="menuitem"]',
-      '[role="option"]',
-      'li',
-      'button',
-      'a',
-      'div'
+      '[role="menuitem"]', '[role="option"]', 'li', 'button', 'a', 'div'
     ];
 
     if (menuRoot) {
-      // 在菜单容器里逐个抓取候选项
-      const sel = itemSelectors.map(s => `${s}`).join(", ");
+      const sel = itemSelectors.join(", ");
       texts = await menuRoot.$$eval(sel, nodes =>
-        nodes
-          .map(n => n.innerText || n.textContent || "")
+        nodes.map(n => n.innerText || n.textContent || "")
           .map(t => t.trim())
           .filter(Boolean)
       );
     } else {
-      // 兜底：全局扫一遍
       texts = await page.$$eval("body *", nodes =>
-        nodes
-          .map(n => n.innerText || n.textContent || "")
+        nodes.map(n => n.innerText || n.textContent || "")
           .map(t => t.trim())
           .filter(Boolean)
       );
     }
 
-    // 归一化、过滤噪声
     let candidates = [];
     for (const t of texts) {
       const clean = normalize(t);
       if (!clean) continue;
-
-      // 优先短文本直接判定；长文本用正则拆片
-      if (clean.length <= 40) {
-        candidates.push(clean);
-      } else {
-        candidates.push(...clean.match(/.{1,120}/g)); // 防止超长文本阻塞，后续再正则提取
-      }
+      if (clean.length <= 40) candidates.push(clean);
+      else candidates.push(...clean.match(/.{1,120}/g));
     }
 
-    // 仅保留“以 Mainnet/Network 结尾”的项；对长串做正则提取
     let picked = [];
     for (const c of candidates) {
-      // 匹配更广泛的主网关键词（包括 Layer1/2, Chain）
-      if (/(Mainnet|Network|Layer\s?\d+|Chain)$/i.test(c)) {
-        picked.push(c);
-      } else if (c.length > 40) {
-        picked.push(...extractFromBlob(c));
-      }
+      if (/(Mainnet|Network|Layer\s?\d+|Chain)$/i.test(c)) picked.push(c);
+      else if (c.length > 40) picked.push(...extractFromBlob(c));
     }
 
-    // 清洗：黑名单、去重、长度限制
     picked = picked
       .map(normalize)
       .filter(x => x && x.length >= 3 && x.length <= 40)
       .filter(x => !STOP_WORDS.has(x.toLowerCase()))
-      .filter(x => !/^x layer mainnetokb$/i.test(x)) // 处理你日志里拼接的特殊噪声
+      .filter(x => !/^x layer mainnetokb$/i.test(x))
       .filter(x => !/connect$/i.test(x));
 
-    // 进一步拆解拼接项（防止多个主网连在一起）
     let splitExpanded = [];
     for (const item of picked) {
       if (/\s(Mainnet|Network|Layer\s?\d+|Chain)\s/i.test(item)) {
-        const parts = item
-  .split(/(?<=Mainnet|Network|Layer\s?\d+|Chain)\s+/i)
-  .filter(Boolean);
-      splitExpanded.push(...parts);
-      } else {
-        splitExpanded.push(item);
-      }
+        const parts = item.split(/(?<=Mainnet|Network|Layer\s?\d+|Chain)\s+/i).filter(Boolean);
+        splitExpanded.push(...parts);
+      } else splitExpanded.push(item);
     }
 
-    // 清理与去重
     const unique = Array.from(
-      new Set(
-        splitExpanded
-          .map(normalize)
-          .filter(x => x && !STOP_WORDS.has(x.toLowerCase()))
-      )
+      new Set(splitExpanded.map(normalize).filter(x => x && !STOP_WORDS.has(x.toLowerCase())))
     ).sort((a, b) => a.localeCompare(b, "en"));
 
-    // 输出与推送
     console.log("📋 当前主网列表:", unique);
     if (unique.length) {
       const stamp = new Date().toLocaleString("zh-CN", { hour12: false });
@@ -262,12 +229,21 @@ async function monitor() {
     try {
       browser = await launchBrowser();
       const page = await browser.newPage();
-      await page.goto("https://dyorswap.org", { timeout: PAGE_TIMEOUT });
-      await new Promise(r => setTimeout(r, 2000));
 
+      const pageLoaded = await safeGoto(page, "https://dyorswap.org");
+      if (!pageLoaded) continue;
+
+      await new Promise((r) => setTimeout(r, 2000));
       const networks = await getNetworks(page);
 
-      // 检测变化
+      // ✅ 首次启动：推送主网数量统计
+      if (!lastNetworks.length && networks.length) {
+        await sendTelegramMessage(
+          `✅ 当前检测到 ${networks.length} 个主网：\n${networks.map(n => `• ${n}`).join("\n")}`
+        );
+      }
+
+      // 🚀 检测主网变化
       if (networks.length && JSON.stringify(networks) !== JSON.stringify(lastNetworks)) {
         const newOnes = networks.filter((n) => !lastNetworks.includes(n));
         if (newOnes.length) {
