@@ -4,10 +4,7 @@ services:
     env: node
     region: singapore           # 或 oregon / frankfurt
     plan: free
-    buildCommand: |
-      npm install
-      mkdir -p .cache/puppeteer
-      PUPPETEER_CACHE_DIR=.cache/puppeteer npx puppeteer browsers install chrome
+    buildCommand: npm install
     startCommand: node server.js
     autoDeploy: true
     envVars:
