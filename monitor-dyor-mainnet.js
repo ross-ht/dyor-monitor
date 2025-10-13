@@ -3,12 +3,10 @@ import axios from "axios";
 import fs from "fs";
 import { execSync } from "child_process";
 
-// === 延迟函数 ===
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// === 环境变量 ===
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const CHECK_INTERVAL = parseInt(process.env.CHECK_INTERVAL || "30000");
@@ -18,7 +16,7 @@ let lastSent = 0;
 let lastNetworks = [];
 let failureCount = 0;
 
-// === Telegram 推送 ===
+// === Telegram ===
 async function sendTelegramMessage(message) {
   try {
     const now = Date.now();
@@ -34,7 +32,7 @@ async function sendTelegramMessage(message) {
   }
 }
 
-// === 自动安装 Chromium ===
+// === 确保 Chromium ===
 async function ensureChromiumInstalled() {
   const chromeDir = "./.local-chromium";
   const chromePath = `${chromeDir}/chrome/linux-141.0.7390.76/chrome-linux64/chrome`;
@@ -50,7 +48,7 @@ async function ensureChromiumInstalled() {
   return chromePath;
 }
 
-// === 启动浏览器 ===
+// === 启动 Puppeteer ===
 async function launchBrowser() {
   try {
     const chromePath = await ensureChromiumInstalled();
@@ -74,7 +72,7 @@ async function launchBrowser() {
   }
 }
 
-// === 页面访问重试逻辑 ===
+// === 页面访问重试 ===
 async function safeGoto(page, url, maxRetries = 5) {
   for (let i = 0; i < maxRetries; i++) {
     try {
@@ -97,12 +95,12 @@ async function safeGoto(page, url, maxRetries = 5) {
   }
 }
 
-// === 主网抓取逻辑（带动态过滤） ===
+// === 主网抓取逻辑 ===
 async function getNetworks(page) {
   try {
     await page.waitForSelector("body", { timeout: 15000 });
 
-    // 点开右上角“主网选择”
+    // 打开右上角选择框
     const toggleSelector =
       'div[class*="sc-de7e8801-1"][class*="sc-1080dffc-0"][class*="sc-ec57e2f1-0"]';
     const toggle = await page.$(toggleSelector);
@@ -111,20 +109,24 @@ async function getNetworks(page) {
       await delay(800);
     }
 
-    // 抓取所有文本节点
-    const texts = await page.$$eval("*", (nodes) =>
+    // 提取所有文本（处理换行+拼接）
+    let texts = await page.$$eval("*", (nodes) =>
       nodes
-        .map((n) => n.innerText || n.textContent || "")
+        .map((n) => (n.innerText || n.textContent || "").replace(/\n+/g, " "))
         .map((t) => t.trim())
         .filter(Boolean)
     );
+    texts = texts.flatMap((t) => t.split(/(?<=[a-z])(?=[A-Z])/)).filter(Boolean);
 
+    // === 统一清洗 ===
     function normalize(s) {
       return s.replace(/\s+/g, " ").trim();
     }
 
-    // 提取关键词
-    const regex = /\b([A-Za-z0-9][A-Za-z0-9\s\-]*(?:Mainnet|Network|Layer\s?\d+|Chain))\b/g;
+    // === 改进版正则 ===
+    const regex =
+      /\b([A-Za-z0-9][A-Za-z0-9\s\-]*(?:Layer\s?\d+\s*)?(?:Mainnet|Network|Chain)(?:\s*L\d+)?|X\s*Layer\s*Mainnet)\b/gi;
+
     let results = [];
     for (const text of texts) {
       let match;
@@ -142,13 +144,14 @@ async function getNetworks(page) {
       "scan", "connect", "coinbase"
     ];
 
-    // ✅ 白名单（防止误杀）
+    // ✅ 白名单
     const SAFE_WORDS = [
       "okb network",
       "uni network",
       "dyor network",
       "gate layer l2",
-      "gate network l1"
+      "gate network l1",
+      "x layer mainnet"
     ];
 
     // === 动态安全过滤 ===
@@ -174,6 +177,7 @@ async function getNetworks(page) {
     );
 
     console.log("📋 当前主网列表:", unique);
+
     if (unique.length) {
       const stamp = new Date().toLocaleString("zh-CN", { hour12: false });
       const msg = `📋 当前主网列表（${stamp}）：\n${unique
@@ -191,7 +195,7 @@ async function getNetworks(page) {
   }
 }
 
-// === 主监控循环 ===
+// === 主循环 ===
 async function monitor() {
   console.log("🚀 DYOR 主网监控已启动...");
   await sendTelegramMessage("✅ DYOR 主网监控脚本已启动，开始检测主网变化。");
