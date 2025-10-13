@@ -87,48 +87,143 @@ async function launchBrowser() {
 }
 
 // === 主网抓取逻辑（自动展开 + 防止哈希变动） ===
+// 统一清洗
+function normalize(s) {
+  return s
+    .replace(/\s+/g, " ")
+    .replace(/[^\S\r\n]+/g, " ")
+    .trim();
+}
+
+// 黑名单（不会当作主网）
+const STOP_WORDS = new Set([
+  "select a network",
+  "connect wallet",
+  "okb",
+  "uni",
+  "okx",
+  "wallet",
+  "bridge",
+  "swap",
+  "stake",
+  "pool",
+  "settings"
+]);
+
+// 拆分长串里的候选 “XXX Mainnet / XXX Network”
+function extractFromBlob(text) {
+  const out = [];
+  const re = /([A-Za-z0-9][A-Za-z0-9\s\-]*(?:Mainnet|Network))(?![A-Za-z])/gi;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    out.push(normalize(m[1]));
+  }
+  return out;
+}
+
 async function getNetworks(page) {
   try {
-    await page.waitForSelector("body", { timeout: PAGE_TIMEOUT });
+    await page.waitForSelector("body", { timeout: 15000 });
 
-    // 尝试展开主网选择菜单
+    // 点开右上角“主网选择”
     const toggleSelector =
       'div[class*="sc-de7e8801-1"][class*="sc-1080dffc-0"][class*="sc-ec57e2f1-0"]';
-    const exists = await page.$(toggleSelector);
-    if (exists) {
-      await page.click(toggleSelector);
-      await new Promise(r => setTimeout(r, 1000)); // 等待动画
+    const toggle = await page.$(toggleSelector);
+    if (toggle) {
+      await toggle.click();
+      await new Promise(r => setTimeout(r, 800));
     }
 
-    // 获取主网名
-    const networks = await page.$$eval('div[class*="sc-de7e8801-1"]', (els) => {
-      return Array.from(
-        new Set(
-          els
-            .map((el) => el.textContent?.trim())
-            .filter((t) => t && t.length > 2 && /mainnet/i.test(t))
-        )
+    // 可能的菜单容器（role 或常见类名 / data-state）
+    const menuRootSelectors = [
+      '[role="menu"]',
+      '[role="listbox"]',
+      '[data-state="open"]',
+      '.menu',
+      '.dropdown',
+      '.popover',
+    ];
+    let menuRoot = null;
+    for (const sel of menuRootSelectors) {
+      const el = await page.$(sel);
+      if (el) { menuRoot = el; break; }
+    }
+
+    let texts = [];
+    const itemSelectors = [
+      '[role="menuitem"]',
+      '[role="option"]',
+      'li',
+      'button',
+      'a',
+      'div'
+    ];
+
+    if (menuRoot) {
+      // 在菜单容器里逐个抓取候选项
+      const sel = itemSelectors.map(s => `${s}`).join(", ");
+      texts = await menuRoot.$$eval(sel, nodes =>
+        nodes
+          .map(n => n.innerText || n.textContent || "")
+          .map(t => t.trim())
+          .filter(Boolean)
       );
-    });
-
-    if (!networks.length) {
-      console.warn("⚠️ 未抓取到主网，可能 DOM 结构变更。");
-      return [];
+    } else {
+      // 兜底：全局扫一遍
+      texts = await page.$$eval("body *", nodes =>
+        nodes
+          .map(n => n.innerText || n.textContent || "")
+          .map(t => t.trim())
+          .filter(Boolean)
+      );
     }
 
-    // console.log("📋 当前主网列表:", networks);
-    // return networks;
-    console.log("📋 当前主网列表:", networks);
+    // 归一化、过滤噪声
+    let candidates = [];
+    for (const t of texts) {
+      const clean = normalize(t);
+      if (!clean) continue;
 
-    // 将当前主网列表推送到 Telegram
-    if (networks.length) {
-      const message =
-        "📋 当前主网列表：\n" +
-        networks.map((n) => `• ${n}`).join("\n");
-      await sendTelegramMessage(message);
+      // 优先短文本直接判定；长文本用正则拆片
+      if (clean.length <= 40) {
+        candidates.push(clean);
+      } else {
+        candidates.push(...clean.match(/.{1,120}/g)); // 防止超长文本阻塞，后续再正则提取
+      }
     }
 
-    return networks;
+    // 仅保留“以 Mainnet/Network 结尾”的项；对长串做正则提取
+    let picked = [];
+    for (const c of candidates) {
+      if (/(?:Mainnet|Network)$/i.test(c)) {
+        picked.push(c);
+      } else if (c.length > 40) {
+        picked.push(...extractFromBlob(c));
+      }
+    }
+
+    // 清洗：黑名单、去重、长度限制
+    picked = picked
+      .map(normalize)
+      .filter(x => x && x.length >= 3 && x.length <= 40)
+      .filter(x => !STOP_WORDS.has(x.toLowerCase()))
+      .filter(x => !/^x layer mainnetokb$/i.test(x)) // 处理你日志里拼接的特殊噪声
+      .filter(x => !/connect$/i.test(x));
+
+    // 去重并按字母排序（可选）
+    const unique = Array.from(new Set(picked)).sort((a, b) =>
+      a.localeCompare(b, "en")
+    );
+
+    // 输出 & 推送
+    console.log("📋 当前主网列表:", unique);
+    if (unique.length) {
+      const stamp = new Date().toLocaleString("zh-CN", { hour12: false });
+      const msg = `📋 当前主网列表（${stamp}）：\n${unique.map(n => `• ${n}`).join("\n")}`;
+      await sendTelegramMessage(msg);
+    }
+
+    return unique;
   } catch (err) {
     console.error("❌ 主网抓取失败:", err.message);
     return [];
