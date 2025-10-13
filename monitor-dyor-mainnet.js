@@ -1,5 +1,6 @@
 import puppeteer from "puppeteer";
 import axios from "axios";
+import { execSync } from "child_process";
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
@@ -32,11 +33,23 @@ async function sendTelegramMessage(message) {
 }
 
 // 启动 Puppeteer
+async function ensureChromiumInstalled() {
+  const path = "/opt/render/project/src/.cache/puppeteer/chrome/linux-141.0.7390.76/chrome-linux64/chrome";
+  try {
+    execSync(`test -f ${path}`);
+    console.log("✅ Chromium 已存在，无需重新下载。");
+  } catch {
+    console.log("⬇️ 正在下载 Chromium...");
+    execSync("npx puppeteer browsers install chrome", { stdio: "inherit" });
+  }
+}
+
 async function launchBrowser() {
   try {
+    await ensureChromiumInstalled();
     const browser = await puppeteer.launch({
       headless: true,
-      executablePath: puppeteer.executablePath(), // 自动根据缓存定位浏览器
+      executablePath: puppeteer.executablePath(),
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
