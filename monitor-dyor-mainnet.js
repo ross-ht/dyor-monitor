@@ -32,7 +32,7 @@ async function sendTelegramMessage(message) {
   }
 }
 
-// === 确保 Chromium ===
+// === Chromium 安装 ===
 async function ensureChromiumInstalled() {
   const chromeDir = "./.local-chromium";
   const chromePath = `${chromeDir}/chrome/linux-141.0.7390.76/chrome-linux64/chrome`;
@@ -72,7 +72,7 @@ async function launchBrowser() {
   }
 }
 
-// === 页面访问重试 ===
+// === 页面加载重试 ===
 async function safeGoto(page, url, maxRetries = 5) {
   for (let i = 0; i < maxRetries; i++) {
     try {
@@ -95,21 +95,19 @@ async function safeGoto(page, url, maxRetries = 5) {
   }
 }
 
-// === 主网抓取逻辑 ===
+// === 抓取主网 ===
 async function getNetworks(page) {
   try {
     await page.waitForSelector("body", { timeout: 15000 });
 
-    // 打开右上角选择框
     const toggleSelector =
       'div[class*="sc-de7e8801-1"][class*="sc-1080dffc-0"][class*="sc-ec57e2f1-0"]';
     const toggle = await page.$(toggleSelector);
     if (toggle) {
       await toggle.click();
-      await delay(1500); // 增加延迟以确保菜单加载完毕
+      await delay(1500);
     }
 
-    // 提取所有文本（处理换行+拼接）
     let texts = await page.$$eval("*", (nodes) =>
       nodes
         .map((n) => (n.innerText || n.textContent || "").replace(/\n+/g, " "))
@@ -117,11 +115,11 @@ async function getNetworks(page) {
         .filter(Boolean)
     );
 
-    // 处理驼峰与数字粘连（GateLayerL2 / NetworkL1）
+    // 🔍 拆分粘连文本
     texts = texts
       .flatMap((t) =>
         t.split(
-          /(?<=[a-z0-9])(?=[A-Z])|(?<=Layer)(?=\d)|(?<=Network)(?=L\d)/
+          /(?<=[a-z0-9])(?=[A-Z])|(?<=Layer)(?=\d)|(?<=Network)(?=L\d)|(?<=\d)(?=[A-Za-z])/
         )
       )
       .filter(Boolean);
@@ -130,9 +128,9 @@ async function getNetworks(page) {
       return s.replace(/\s+/g, " ").trim();
     }
 
-    // === 改进版正则 ===
+    // === 改进正则匹配（包括 Gate / 0G 特例） ===
     const regex =
-      /\b([A-Za-z0-9][A-Za-z0-9\s\-]*(?:Layer\s?\d+\s*)?(?:Mainnet|Network|Chain)(?:\s*L\d+)?|X\s*Layer\s*Mainnet|Gate\s*Layer\s*L2|Gate\s*Network\s*L1)\b/gi;
+      /\b([A-Za-z0-9][A-Za-z0-9\s\-]*(?:Layer\s?\d+\s*)?(?:Mainnet|Network|Chain)(?:\s*L\d+)?|X\s*Layer\s*Mainnet|Gate\s*Layer\s*L2|Gate\s*Network\s*L1|0G\s*Mainnet)\b/gi;
 
     let results = [];
     for (const text of texts) {
@@ -142,7 +140,7 @@ async function getNetworks(page) {
       }
     }
 
-    // === 动态过滤配置 ===
+    // === 黑白名单 ===
     const STOP_WORDS = [
       "select a network", "connect wallet", "okb", "uni", "okx", "wallet",
       "bridge", "swap", "stake", "pool", "settings", "dyor", "home", "launch",
@@ -151,17 +149,16 @@ async function getNetworks(page) {
       "scan", "connect", "coinbase"
     ];
 
-    // ✅ 白名单
     const SAFE_WORDS = [
       "okb network",
       "uni network",
       "dyor network",
       "gate layer l2",
       "gate network l1",
-      "x layer mainnet"
+      "x layer mainnet",
+      "0g mainnet"
     ];
 
-    // === 动态安全过滤 ===
     let filtered = results
       .map(normalize)
       .filter(
