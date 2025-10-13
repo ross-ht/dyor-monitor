@@ -1,30 +1,35 @@
+// monitor-dyor-mainnet.js
 import puppeteer from "puppeteer";
 import axios from "axios";
 import fs from "fs";
 import { execSync } from "child_process";
 
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
+// === 环境变量 ===
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-const CHECK_INTERVAL = parseInt(process.env.CHECK_INTERVAL || "30000");
-const PAGE_TIMEOUT = parseInt(process.env.PAGE_TIMEOUT || "15000");
+const CHECK_INTERVAL = process.env.CHECK_INTERVAL
+  ? parseInt(process.env.CHECK_INTERVAL)
+  : 30000;
+const PAGE_TIMEOUT = process.env.PAGE_TIMEOUT
+  ? parseInt(process.env.PAGE_TIMEOUT)
+  : 15000;
 
 let lastSent = 0;
 let lastNetworks = [];
 let failureCount = 0;
 
-// === Telegram ===
+// === Telegram 推送（带限流） ===
 async function sendTelegramMessage(message) {
   try {
     const now = Date.now();
-    if (now - lastSent < 1500) await delay(1500);
+    if (now - lastSent < 1500) await new Promise((r) => setTimeout(r, 1500));
     lastSent = now;
     await axios.post(
       `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
-      { chat_id: TELEGRAM_CHAT_ID, text: message }
+      {
+        chat_id: TELEGRAM_CHAT_ID,
+        text: message,
+      }
     );
     console.log("📨 Telegram 推送成功:", message);
   } catch (err) {
@@ -32,17 +37,23 @@ async function sendTelegramMessage(message) {
   }
 }
 
-// === Chromium 安装 ===
+// === 确保 Chromium 存在 ===
 async function ensureChromiumInstalled() {
   const chromeDir = "./.local-chromium";
   const chromePath = `${chromeDir}/chrome/linux-141.0.7390.76/chrome-linux64/chrome`;
-  if (fs.existsSync(chromePath)) return chromePath;
+
+  if (fs.existsSync(chromePath)) {
+    console.log("✅ Chromium 已存在，无需重新下载。");
+    return chromePath;
+  }
 
   console.log("⬇️ 正在下载 Chromium...");
   execSync(`mkdir -p ${chromeDir}`, { stdio: "inherit" });
-  execSync(`PUPPETEER_CACHE_DIR=${chromeDir} npx puppeteer browsers install chrome`, {
-    stdio: "inherit",
-  });
+  execSync(
+    `PUPPETEER_CACHE_DIR=${chromeDir} npx puppeteer browsers install chrome`,
+    { stdio: "inherit" }
+  );
+
   if (!fs.existsSync(chromePath)) throw new Error("❌ Chromium 下载失败！");
   console.log("✅ Chromium 下载完成。");
   return chromePath;
@@ -52,7 +63,7 @@ async function ensureChromiumInstalled() {
 async function launchBrowser() {
   try {
     const chromePath = await ensureChromiumInstalled();
-    return await puppeteer.launch({
+    const browser = await puppeteer.launch({
       headless: true,
       executablePath: chromePath,
       args: [
@@ -60,11 +71,11 @@ async function launchBrowser() {
         "--disable-setuid-sandbox",
         "--disable-gpu",
         "--disable-dev-shm-usage",
-        "--disable-extensions",
         "--no-zygote",
         "--single-process",
       ],
     });
+    return browser;
   } catch (err) {
     console.error("🚫 启动 Chrome 失败:", err.message);
     await sendTelegramMessage("🚨 无法启动 Puppeteer，请检查 Chromium 路径配置！");
@@ -72,135 +83,39 @@ async function launchBrowser() {
   }
 }
 
-// === 页面加载重试 ===
-async function safeGoto(page, url, maxRetries = 5) {
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      console.log(`🌐 正在访问页面（第 ${i + 1} 次尝试）...`);
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 120000 });
-      await page.waitForSelector("body", { timeout: 20000 });
-      console.log("✅ 页面加载成功");
-      await delay(4000);
-      return true;
-    } catch (err) {
-      console.warn(`⚠️ 加载失败（第 ${i + 1} 次尝试）: ${err.message}`);
-      if (i < maxRetries - 1) {
-        console.log("⏳ 3 秒后重试...");
-        await delay(3000);
-      } else {
-        await sendTelegramMessage("⚠️ 页面加载失败，无法访问目标网站。");
-        return false;
-      }
-    }
-  }
-}
-
-// === 抓取主网 ===
+// === 抓取主网列表 ===
 async function getNetworks(page) {
   try {
+    await page.setViewport({ width: 1280, height: 900 });
     await page.waitForSelector("body", { timeout: 15000 });
 
+    // 打开主网菜单
     const toggleSelector =
-      'div[class*="sc-de7e8801-1"][class*="sc-1080dffc-0"][class*="sc-ec57e2f1-0"]';
+      'div[class*="sc-de7e8801-1"][class*="sc-1080dffc-0"], div[class*="sc-de7e8801-1"][class*="sc-ec57e2f1-0"]';
     const toggle = await page.$(toggleSelector);
     if (toggle) {
       await toggle.click();
-      await delay(1500);
+      await new Promise((r) => setTimeout(r, 1500));
     }
 
-    // 滚动菜单，防止虚拟化未加载完
-    try {
-      const menuRootSelectors = [
-        '[role="menu"]',
-        '[role="listbox"]',
-        '[data-state="open"]',
-        '.menu',
-        '.dropdown',
-        '.popover',
-      ];
-      for (const sel of menuRootSelectors) {
-        const handle = await page.$(sel);
-        if (!handle) continue;
-        await page.evaluate(async (el) => {
-          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-          let last = -1;
-          for (let i = 0; i < 30; i++) {
-            el.scrollTop = el.scrollHeight;
-            await sleep(120);
-            if (el.scrollTop === last) break;
-            last = el.scrollTop;
-          }
-          el.scrollTop = 0;
-          await sleep(80);
-        }, handle);
-      }
-    } catch {}
+    // 精准提取所有主网名称
+    await page.waitForSelector('button.sc-d6870169-1 div[class*="bvHJys"]', {
+      timeout: 8000,
+    });
 
-    let texts = await page.$$eval("*", (nodes) =>
-      nodes
-        .map((n) => (n.innerText || n.textContent || "").replace(/\n+/g, " "))
-        .map((t) => t.trim())
-        .filter(Boolean)
+    const networks = await page.$$eval(
+      'button.sc-d6870169-1 div[class*="bvHJys"]',
+      (nodes) => nodes.map((n) => n.textContent.trim()).filter(Boolean)
     );
 
-    // 拆分粘连文本（不再分开 0G）
-    texts = texts
-      .flatMap((t) =>
-        t.split(
-          /(?<=[a-z0-9])(?=[A-Z])|(?<=Layer)(?=\d)|(?<=Network)(?=L\d)|(?<=\d)(?=[A-Za-z])|(?<=Gate)(?=\s*Layer|Network)/
-        )
-      )
-      .filter(Boolean);
-
-    const normalize = (s) => s.replace(/\s+/g, " ").trim();
-
-    const regex =
-      /\b(0G\s*Mainnet|Gate\s*Layer\s*L2|Gate\s*Network\s*L1|[A-Za-z0-9][A-Za-z0-9\s\-]*(?:Layer\s?\d+\s*)?(?:Mainnet|Network|Chain)(?:\s*L\d+)?)\b/gi;
-
-    let results = [];
-    for (const text of texts) {
-      let match;
-      while ((match = regex.exec(text)) !== null) {
-        results.push(normalize(match[1]));
-      }
-    }
-
-    const STOP_WORDS = [
-      "select a network", "connect wallet", "okb", "uni", "okx", "wallet",
-      "bridge", "swap", "stake", "pool", "settings", "dyor", "home", "launch",
-      "create", "try", "install", "with", "click", "works", "to", "extension",
-      "data", "crypto", "me", "involve", "fun", "listed", "private key", "apps",
-      "scan", "connect", "coinbase"
-    ];
-
-    const SAFE_WORDS = [
-      "okb network", "uni network", "dyor network",
-      "gate layer l2", "gate network l1", "x layer mainnet", "0g mainnet"
-    ];
-
-    let filtered = results
-      .map(normalize)
-      .filter(
-        (x) =>
-          x &&
-          x.length >= 3 &&
-          x.length <= 40 &&
-          (
-            SAFE_WORDS.some((s) => x.toLowerCase().includes(s)) ||
-            !STOP_WORDS.some((w) => new RegExp(`\\b${w}\\b`, "i").test(x))
-          )
-      )
-      // ✅ 放宽末尾规则：允许 Layer L2 / Network L1 结尾
-      .filter((x) => /(Mainnet$|Network(?:\s*L\d+)?$|Layer\s?\d+$|Chain$)/i.test(x))
-      .filter((x) => !/[|,.:;@]/.test(x))
-      .filter((x) => !/\b(with|to|and|for)\b/i.test(x));
-
-    const unique = Array.from(new Set(filtered)).sort((a, b) =>
+    // 去重 & 排序
+    const unique = Array.from(new Set(networks)).sort((a, b) =>
       a.localeCompare(b, "en")
     );
 
     console.log("📋 当前主网列表:", unique);
 
+    // 推送到 Telegram
     if (unique.length) {
       const stamp = new Date().toLocaleString("zh-CN", { hour12: false });
       // const msg = `📋 当前主网列表（${stamp}）：\n${unique
@@ -218,7 +133,7 @@ async function getNetworks(page) {
   }
 }
 
-// === 主循环 ===
+// === 主监控逻辑 ===
 async function monitor() {
   console.log("🚀 DYOR 主网监控已启动...");
   await sendTelegramMessage("✅ DYOR 主网监控脚本已启动，开始检测主网变化。");
@@ -232,42 +147,42 @@ async function monitor() {
     try {
       browser = await launchBrowser();
       const page = await browser.newPage();
-      const ok = await safeGoto(page, "https://dyorswap.org");
-      if (!ok) continue;
+      await page.goto("https://dyorswap.org", {
+        timeout: 60000,
+        waitUntil: "networkidle2",
+      });
+      await new Promise((r) => setTimeout(r, 2000));
 
       const networks = await getNetworks(page);
 
-      if (networks.length) {
-        const oldList = JSON.stringify(lastNetworks);
-        const newList = JSON.stringify(networks);
-
-        if (oldList !== newList) {
-          const newOnes = networks.filter((n) => !lastNetworks.includes(n));
-          const removed = lastNetworks.filter((n) => !networks.includes(n));
-
-          let changeMsg = "";
-          if (newOnes.length) changeMsg += `🚀 发现新主网：${newOnes.join(", ")}\n`;
-          if (removed.length) changeMsg += `❌ 移除主网：${removed.join(", ")}\n`;
-
-          await sendTelegramMessage(changeMsg || "⚠️ 主网列表发生变化。");
-          lastNetworks = networks;
-        } else {
-          console.log("🔁 无主网变化，不重复推送。");
+      // 检测变化
+      if (
+        networks.length &&
+        JSON.stringify(networks) !== JSON.stringify(lastNetworks)
+      ) {
+        const newOnes = networks.filter((n) => !lastNetworks.includes(n));
+        if (newOnes.length) {
+          await sendTelegramMessage(`🚀 发现新主网：${newOnes.join(", ")}`);
         }
+        lastNetworks = networks;
       }
 
       failureCount = 0;
     } catch (err) {
       failureCount++;
       console.error("⚠️ 监控循环错误:", err.message);
-      if (failureCount === 1 || failureCount % 5 === 0)
-        await sendTelegramMessage(`⚠️ 网络异常（连续 ${failureCount} 次失败），请检查服务。`);
+      if (failureCount === 1 || failureCount % 5 === 0) {
+        await sendTelegramMessage(
+          `⚠️ 网络异常（连续 ${failureCount} 次失败），请检查服务。`
+        );
+      }
     } finally {
       if (browser) await browser.close();
     }
 
-    await delay(CHECK_INTERVAL);
+    await new Promise((r) => setTimeout(r, CHECK_INTERVAL));
   }
 }
 
+// === 启动 ===
 monitor();
