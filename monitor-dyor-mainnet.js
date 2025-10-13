@@ -1,29 +1,6 @@
 import puppeteer from "puppeteer";
 import axios from "axios";
 
-async function launchBrowser() {
-  try {
-    const browser = await puppeteer.launch({
-      headless: true,
-      executablePath: puppeteer.executablePath(), // 自动根据缓存定位浏览器
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-gpu",
-        "--disable-dev-shm-usage",
-        "--disable-extensions",
-        "--no-zygote",
-        "--single-process"
-      ]
-    });
-    return browser;
-  } catch (err) {
-    console.error("🚫 启动 Chrome 失败:", err.message);
-    await sendTelegramMessage("🚨 无法启动 Puppeteer，请检查 Chromium 路径配置！");
-    throw err;
-  }
-}
-
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const CHECK_INTERVAL = parseInt(process.env.CHECK_INTERVAL || "60000", 10);
@@ -59,6 +36,7 @@ async function launchBrowser() {
   try {
     const browser = await puppeteer.launch({
       headless: true,
+      executablePath: puppeteer.executablePath(), // 自动根据缓存定位浏览器
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
@@ -72,7 +50,7 @@ async function launchBrowser() {
     return browser;
   } catch (err) {
     console.error("🚫 启动 Chrome 失败:", err.message);
-    await sendTelegramMessage("🚨 无法启动 Puppeteer，请检查 Chromium 启动配置！");
+    await sendTelegramMessage("🚨 无法启动 Puppeteer，请检查 Chromium 路径配置！");
     throw err;
   }
 }
