@@ -13,7 +13,7 @@ let lastSent = 0;
 let lastNetworks = [];
 let failureCount = 0;
 
-// === Telegram 消息 ===
+// === Telegram 推送 ===
 async function sendTelegramMessage(message) {
   try {
     const now = Date.now();
@@ -72,7 +72,7 @@ async function launchBrowser() {
   }
 }
 
-// === 安全加载页面 ===
+// === 安全访问页面 ===
 async function safeGoto(page, url, maxRetries = 5) {
   for (let i = 0; i < maxRetries; i++) {
     try {
@@ -105,7 +105,7 @@ const STOP_WORDS = new Set([
   "bridge", "swap", "stake", "pool", "settings", "dyor", "launch", "home"
 ]);
 
-// === 从大段文本提取主网 ===
+// === 递归提取主网文本 ===
 function extractFromBlob(text) {
   const out = [];
   const re = /\b([A-Z][A-Za-z0-9\s\-]*(?:Mainnet|Network|Layer\s?(?:L\d+|\d+)|Chain|Hub|Verse))\b/g;
@@ -114,51 +114,55 @@ function extractFromBlob(text) {
   return out;
 }
 
-// === 抓取主网列表 ===
+// === 抓取主网 ===
 async function getNetworks(page) {
   try {
     await page.waitForSelector("body", { timeout: 15000 });
 
-    // 展开主网选择菜单
+    // 点击主网菜单按钮
     const toggleSelector =
       'div[class*="sc-de7e8801-1"][class*="sc-1080dffc-0"][class*="sc-ec57e2f1-0"]';
     const toggle = await page.$(toggleSelector);
     if (toggle) {
       await toggle.click();
-      await new Promise(r => setTimeout(r, 800));
+      await page.waitForTimeout(2000); // 等待动画结束
 
-      // ✅ 强制展开隐藏菜单
+      // ✅ 强制展开所有隐藏项
       await page.evaluate(() => {
-        document.querySelectorAll('[data-state="closed"], [aria-hidden="true"]').forEach(el => {
-          el.removeAttribute("data-state");
-          el.removeAttribute("aria-hidden");
-          el.style.display = "block";
-          el.style.visibility = "visible";
-          el.style.opacity = "1";
+        document.querySelectorAll('*').forEach(el => {
+          if (el.textContent && /Mainnet|Network|Layer|Chain/i.test(el.textContent)) {
+            el.style.display = 'block';
+            el.style.visibility = 'visible';
+            el.style.opacity = '1';
+          }
         });
       });
     }
 
-    // 只抓菜单区域
-    const texts = await page.$$eval(
-      '[role="menu"], [data-state="open"], .dropdown, .popover',
-      menus => menus.flatMap(menu =>
-        Array.from(menu.querySelectorAll('[role="menuitem"], [role="option"], li, button, a, div'))
-          .map(n => n.innerText || n.textContent || "")
-          .map(t => t.trim())
-          .filter(Boolean)
-      )
-    );
+    // ✅ 递归遍历 DOM + Shadow DOM
+    const texts = await page.evaluate(() => {
+      const collectTexts = (root) => {
+        let out = [];
+        root.querySelectorAll('*').forEach(el => {
+          if (el.shadowRoot) out.push(...collectTexts(el.shadowRoot));
+          const txt = el.innerText || el.textContent || '';
+          if (txt && /(Mainnet|Network|Layer|Chain)/i.test(txt)) out.push(txt.trim());
+        });
+        return out;
+      };
+      return collectTexts(document);
+    });
 
+    // === 提取与清洗 ===
     let picked = [];
     for (const t of texts) {
       const clean = normalize(t);
       if (!clean || STOP_WORDS.has(clean.toLowerCase())) continue;
-      if (clean.length <= 40 && /(Mainnet|Network|Layer|Chain)/i.test(clean)) picked.push(clean);
+      if (clean.length <= 50 && /(Mainnet|Network|Layer|Chain)/i.test(clean))
+        picked.push(clean);
       else picked.push(...extractFromBlob(clean));
     }
 
-    // 拆分与去重
     const splitExpanded = [];
     for (const item of picked) {
       const parts = item.split(/(?<=Mainnet|Network|Layer\s?(?:L\d+|\d+)|Chain|Hub|Verse)\b\s*/i).filter(Boolean);
@@ -170,10 +174,10 @@ async function getNetworks(page) {
         .map(normalize)
         .filter(x => x && x.length >= 4 && x.length <= 40)
         .filter(x => !STOP_WORDS.has(x.toLowerCase()))
+        .filter(x => /^[A-Z]/.test(x))
       )
     ).sort((a, b) => a.localeCompare(b, "en"));
 
-    // 输出 & 推送
     console.log("📋 当前主网列表:", unique);
     if (unique.length) {
       const stamp = new Date().toLocaleString("zh-CN", { hour12: false });
@@ -187,7 +191,7 @@ async function getNetworks(page) {
   }
 }
 
-// === 主监控逻辑 ===
+// === 主监控循环 ===
 async function monitor() {
   console.log("🚀 DYOR 主网监控已启动...");
   await sendTelegramMessage("✅ DYOR 主网监控脚本已启动，开始检测主网变化。");
@@ -206,12 +210,10 @@ async function monitor() {
 
       const networks = await getNetworks(page);
 
-      // 初始推送
       if (!lastNetworks.length && networks.length) {
         await sendTelegramMessage(`✅ 当前检测到 ${networks.length} 个主网：\n${networks.map(n => `• ${n}`).join("\n")}`);
       }
 
-      // 检测变化
       if (networks.length && JSON.stringify(networks) !== JSON.stringify(lastNetworks)) {
         const newOnes = networks.filter(n => !lastNetworks.includes(n));
         if (newOnes.length)
