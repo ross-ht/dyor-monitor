@@ -22,5 +22,6 @@
   "bugs": {
     "url": "https://github.com/ross-ht/dyor-monitor/issues"
   },
-  "homepage": "https://github.com/ross-ht/dyor-monitor#readme"
+  "homepage": "https://github.com/ross-ht/dyor-monitor#readme",
+  "_rebuild": "v2"
 }
