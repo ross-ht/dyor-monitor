@@ -97,49 +97,113 @@ async function safeGoto(page, url, maxRetries = 5) {
   }
 }
 
-// === 主网抓取逻辑 ===
+// === 主网抓取逻辑（成功版） ===
 async function getNetworks(page) {
   try {
     await page.waitForSelector("body", { timeout: 15000 });
 
-    // 点击右上角“主网选择”按钮
+    // 点开右上角“主网选择”
     const toggleSelector =
       'div[class*="sc-de7e8801-1"][class*="sc-1080dffc-0"][class*="sc-ec57e2f1-0"]';
     const toggle = await page.$(toggleSelector);
     if (toggle) {
       await toggle.click();
-      await delay(2000);
+      await delay(800);
     }
 
-    // 抓取所有节点文字
-    const texts = await page.$$eval("*", (nodes) =>
-      nodes
-        .map((n) => n.innerText || n.textContent || "")
-        .map((t) => t.trim())
-        .filter(Boolean)
-    );
-
-    // 匹配所有主网关键词（宽松匹配）
-    const regex =
-      /\b([A-Za-z0-9][A-Za-z0-9\s\-]*(?:Mainnet|Network|Layer\s?(?:L\d+|\d+)|Chain))\b/g;
-    const results = [];
-
-    for (const text of texts) {
-      let match;
-      while ((match = regex.exec(text)) !== null) {
-        results.push(match[1].trim());
+    // 查找菜单节点
+    const menuRootSelectors = [
+      '[role="menu"]',
+      '[role="listbox"]',
+      '[data-state="open"]',
+      '.menu',
+      '.dropdown',
+      '.popover',
+    ];
+    let menuRoot = null;
+    for (const sel of menuRootSelectors) {
+      const el = await page.$(sel);
+      if (el) {
+        menuRoot = el;
+        break;
       }
     }
 
-    // 清洗与去重
-    const STOP_WORDS =
-      /select|okb|connect|wallet|swap|bridge|stake|pool|settings|dyor|launch|home/i;
+    let texts = [];
+    const itemSelectors = ["[role='menuitem']", "[role='option']", "li", "button", "a", "div"];
+
+    if (menuRoot) {
+      const sel = itemSelectors.map((s) => `${s}`).join(", ");
+      texts = await menuRoot.$$eval(sel, (nodes) =>
+        nodes
+          .map((n) => n.innerText || n.textContent || "")
+          .map((t) => t.trim())
+          .filter(Boolean)
+      );
+    } else {
+      texts = await page.$$eval("*", (nodes) =>
+        nodes
+          .map((n) => n.innerText || n.textContent || "")
+          .map((t) => t.trim())
+          .filter(Boolean)
+      );
+    }
+
+    // === 归一化函数 ===
+    function normalize(s) {
+      return s.replace(/\s+/g, " ").trim();
+    }
+
+    // === 噪声过滤 ===
+    const STOP_WORDS = new Set([
+      "select a network",
+      "connect wallet",
+      "okb",
+      "uni",
+      "okx",
+      "wallet",
+      "bridge",
+      "swap",
+      "stake",
+      "pool",
+      "settings",
+    ]);
+
+    // === 提取规则 ===
+    const regex = /([A-Za-z0-9][A-Za-z0-9\s\-]*(?:Mainnet|Network|Layer\s?\d+|Chain))/gi;
+    let candidates = [];
+
+    for (const text of texts) {
+      if (text.length <= 40) {
+        candidates.push(normalize(text));
+      } else {
+        let m;
+        while ((m = regex.exec(text)) !== null) {
+          candidates.push(normalize(m[1]));
+        }
+      }
+    }
+
+    // === 拆解拼接项 ===
+    let splitExpanded = [];
+    for (const item of candidates) {
+      if (/\s(Mainnet|Network|Layer\s?\d+|Chain)\s/i.test(item)) {
+        const parts = item
+          .split(/(?<=Mainnet|Network|Layer\s?\d+|Chain)\s+/i)
+          .filter(Boolean);
+        splitExpanded.push(...parts);
+      } else {
+        splitExpanded.push(item);
+      }
+    }
+
+    // === 去重清洗 ===
     const unique = Array.from(
       new Set(
-        results
-          .map((x) => x.replace(/\s+/g, " ").trim())
-          .filter((x) => x.length >= 3 && x.length <= 40)
-          .filter((x) => !STOP_WORDS.test(x))
+        splitExpanded
+          .map(normalize)
+          .filter((x) => x && x.length >= 3 && x.length <= 40)
+          .filter((x) => !STOP_WORDS.has(x.toLowerCase()))
       )
     ).sort((a, b) => a.localeCompare(b, "en"));
 
@@ -147,9 +211,8 @@ async function getNetworks(page) {
 
     if (unique.length) {
       const stamp = new Date().toLocaleString("zh-CN", { hour12: false });
-      await sendTelegramMessage(
-        `📋 当前主网列表（${stamp}）：\n${unique.map((n) => `• ${n}`).join("\n")}`
-      );
+      const msg = `📋 当前主网列表（${stamp}）：\n${unique.map((n) => `• ${n}`).join("\n")}`;
+      await sendTelegramMessage(msg);
     } else {
       await sendTelegramMessage("⚠️ 未检测到任何主网，请检查页面结构是否有更新。");
     }
