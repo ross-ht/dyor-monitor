@@ -1,6 +1,5 @@
 import express from "express";
 import { spawn } from "child_process";
-import http from "http";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -16,3 +15,8 @@ app.get("/", (req, res) => {
 app.listen(PORT, () => {
   console.log('🌐 Web service running on port ${PORT}');
 });
+
+setTimeout(() => {
+    console.log("🌐 Prewarming Render instance...");
+    fetch("https://dyorswap.org").catch(() => {});
+  }, 5000);

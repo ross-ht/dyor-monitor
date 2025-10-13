@@ -125,9 +125,12 @@ async function monitor() {
     const browser = await launchBrowser();
     const page = await browser.newPage();
     await page.goto("https://dyorswap.org", {
-      timeout: 60000,
-      waitUntil: "networkidle2",
+      timeout: PAGE_TIMEOUT * 2,          // 双倍超时，提升容错
+      waitUntil: "domcontentloaded",      // 改为更宽容的事件
     });
+
+    // 等待主内容渲染完成（网站框架加载完成的标志）
+    await page.waitForSelector("div.sc-de7e8801-1", { timeout: 30000 });
     await new Promise((r) => setTimeout(r, 2000));
     const initialNetworks = await getNetworks(page);
     if (initialNetworks.length > 0) {
