@@ -7,13 +7,13 @@ import { execSync } from "child_process";
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const CHECK_INTERVAL = parseInt(process.env.CHECK_INTERVAL || "60000");
-const PAGE_TIMEOUT = parseInt(process.env.PAGE_TIMEOUT || "60000");
+const PAGE_TIMEOUT = parseInt(process.env.PAGE_TIMEOUT || "90000");
 
 let lastNetworks = [];
 let failureCount = 0;
 let lastSent = 0;
 
-// === Telegram 推送函数 ===
+// === Telegram 推送 ===
 async function sendTelegramMessage(msg) {
   try {
     const now = Date.now();
@@ -33,7 +33,10 @@ async function sendTelegramMessage(msg) {
 async function ensureChromiumInstalled() {
   const chromeDir = "./.local-chromium";
   const chromePath = `${chromeDir}/chrome/linux-141.0.7390.76/chrome-linux64/chrome`;
-  if (fs.existsSync(chromePath)) return chromePath;
+  if (fs.existsSync(chromePath)) {
+    console.log("✅ Chromium 已存在，无需重新下载。");
+    return chromePath;
+  }
 
   console.log("⬇️ 正在下载 Chromium...");
   execSync(`mkdir -p ${chromeDir}`, { stdio: "inherit" });
@@ -43,11 +46,11 @@ async function ensureChromiumInstalled() {
   return chromePath;
 }
 
-// === 启动 Puppeteer 浏览器 ===
+// === 启动浏览器 ===
 async function launchBrowser() {
   try {
     const chromePath = await ensureChromiumInstalled();
-    return await puppeteer.launch({
+    const browser = await puppeteer.launch({
       headless: true,
       executablePath: chromePath,
       args: [
@@ -60,120 +63,91 @@ async function launchBrowser() {
         "--single-process",
       ],
     });
+    return browser;
   } catch (err) {
     console.error("🚫 启动 Chrome 失败:", err.message);
-    await sendTelegramMessage("🚨 无法启动 Puppeteer，请检查 Chromium 路径配置！");
+    await sendTelegramMessage("🚨 无法启动 Puppeteer，请检查 Chromium 配置！");
     throw err;
   }
 }
 
-// === 尝试展开“主网选择”菜单 ===
+// === 确保菜单展开 ===
 async function ensureMenuOpen(page) {
-  const hasButtons = await page.evaluate(() => {
-    return document.querySelectorAll('button[class*="sc-d6870169-1"] div[class*="sc-118b6623-0"]').length > 0;
-  });
-  if (hasButtons) return;
-
-  const candidates = [
-    'div[class*="sc-de7e8801-1"][class*="sc-1080dffc-0"][class*="sc-ec57e2f1-0"]',
-    'div[class*="dUUCVU"]',
-    'div[class*="sc-2371b370-0"]',
-    'div:has-text("Select a Network")',
-  ];
-
-  for (const sel of candidates) {
+  console.log("🌐 尝试展开主网选择菜单...");
+  for (let attempt = 1; attempt <= 5; attempt++) {
     try {
-      const el = await page.$(sel);
-      if (el) {
-        await el.click().catch(() => {});
-        await new Promise(r => setTimeout(r, 800));
-        const opened = await page.evaluate(() => {
-          return document.querySelectorAll('button[class*="sc-d6870169-1"] div[class*="sc-118b6623-0"]').length > 0;
-        });
-        if (opened) return;
+      const toggle = await page.$('div[class*="dUUCVU"], div[class*="sc-2371b370-0"]');
+      if (toggle) {
+        await toggle.click();
+        await new Promise(r => setTimeout(r, 1000 * attempt));
       }
-    } catch (_) {}
-  }
 
-  // === XPath 兜底方案 ===
-  const clicked = await page.evaluate(() => {
-    try {
-      const xpath = "//*[contains(normalize-space(text()), 'Select a Network')]";
-      const it = document.evaluate(xpath, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
-      if (it.snapshotLength > 0) {
-        const node = it.snapshotItem(0);
-        if (node instanceof HTMLElement) {
-          node.click();
-          return true;
-        }
+      const visible = await page.evaluate(() => {
+        const items = document.querySelectorAll(
+          'button[class*="sc-d6870169-1"] div[class*="sc-118b6623-0"]'
+        );
+        return Array.from(items).map(x => x.textContent.trim()).filter(Boolean).length;
+      });
+      if (visible > 10) {
+        console.log(`✅ 菜单展开成功（第 ${attempt} 次尝试）`);
+        return;
       }
-      return false;
-    } catch {
-      return false;
+    } catch (err) {
+      console.warn(`⚠️ 展开菜单失败（第 ${attempt} 次）: ${err.message}`);
     }
-  });
-  if (clicked) await new Promise(r => setTimeout(r, 800));
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  console.warn("⚠️ 未能成功展开主网菜单！");
 }
 
-// === 抓取主网列表 ===
+// === 抓取主网列表（带容错与重试） ===
 async function getNetworks(page) {
-  try {
-    console.log("🌐 正在访问页面（最多 3 次尝试）...");
-    let success = false;
-    for (let i = 1; i <= 3; i++) {
-      try {
-        console.log(`🌐 正在访问页面（第 ${i}/3 次尝试）...`);
-        await page.goto("https://dyorswap.org", {
-          waitUntil: ["domcontentloaded"], // 更宽松
-          timeout: 90000, // 90 秒
-        });
-        success = true;
-        break;
-      } catch (e) {
-        console.warn(`⚠️ 第 ${i} 次访问失败: ${e.message}`);
-        if (i < 3) {
-          await new Promise(r => setTimeout(r, 5000));
-          continue;
-        } else {
-          throw e;
-        }
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      console.log(`🌐 正在访问页面（第 ${attempt}/3 次尝试）...`);
+      await page.goto("https://dyorswap.org", {
+        waitUntil: "domcontentloaded",
+        timeout: PAGE_TIMEOUT,
+      });
+      await page.waitForSelector("body", { timeout: 30000 });
+      await new Promise(r => setTimeout(r, 5000));
+
+      await ensureMenuOpen(page);
+      console.log("🌐 正在抓取主网列表...");
+
+      const networks = await page.evaluate(() => {
+        const items = Array.from(
+          document.querySelectorAll(
+            'button[class*="sc-d6870169-1"] div[class*="sc-118b6623-0"]'
+          )
+        );
+        return items.map(el => el.textContent.trim()).filter(Boolean);
+      });
+
+      const cleaned = Array.from(new Set(networks))
+        .map(n => n.replace(/\s+/g, " ").trim())
+        .filter(n => /Mainnet|Network/i.test(n))
+        .sort((a, b) => a.localeCompare(b, "en"));
+
+      if (!cleaned.length) throw new Error("⚠️ 页面已加载但未检测到主网元素。");
+
+      console.log("📋 当前主网列表:", cleaned);
+      await sendTelegramMessage(
+        `📋 当前主网列表（${new Date().toLocaleString("zh-CN", { hour12: false })}）：\n${cleaned
+          .map(x => `• ${x}`)
+          .join("\n")}`
+      );
+      return cleaned;
+    } catch (err) {
+      console.warn(`⚠️ 第 ${attempt} 次抓取失败: ${err.message}`);
+      if (attempt < 3) {
+        console.log("⏳ 5 秒后重试...");
+        await new Promise(r => setTimeout(r, 5000));
+      } else {
+        await sendTelegramMessage(`⚠️ 主网抓取失败: ${err.message}`);
+        return [];
       }
     }
-
-    if (!success) throw new Error("无法访问 dyorswap.org");
-
-    console.log("🌐 正在等待页面元素渲染...");
-    await page.waitForSelector("body", { timeout: 30000 });
-    await new Promise(r => setTimeout(r, 3000));
-
-    await ensureMenuOpen(page);
-    console.log("🌐 正在抓取主网列表...");
-
-    const networks = await page.evaluate(() => {
-      const items = Array.from(
-        document.querySelectorAll('button[class*="sc-d6870169-1"] div[class*="sc-118b6623-0"]')
-      );
-      return items.map(el => el.textContent.trim()).filter(Boolean);
-    });
-
-    const cleaned = Array.from(new Set(networks))
-      .map(n => n.replace(/\s+/g, " ").trim())
-      .filter(n => /Mainnet|Network/i.test(n))
-      .sort((a, b) => a.localeCompare(b, "en"));
-
-    if (!cleaned.length) throw new Error("⚠️ 未检测到任何主网，请检查页面结构。");
-
-    console.log("📋 当前主网列表:", cleaned);
-    await sendTelegramMessage(
-      `📋 当前主网列表（${new Date().toLocaleString("zh-CN", { hour12: false })}）：\n${cleaned
-        .map(x => `• ${x}`)
-        .join("\n")}`
-    );
-    return cleaned;
-  } catch (err) {
-    console.error("❌ 主网抓取失败:", err.message);
-    await sendTelegramMessage(`⚠️ 主网抓取失败: ${err.message}`);
-    return [];
   }
 }
 
@@ -213,7 +187,7 @@ async function monitor() {
   }
 }
 
-// === 启动主程序 ===
+// === 启动 ===
 (async () => {
   try {
     await monitor();
