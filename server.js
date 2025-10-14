@@ -1,35 +1,25 @@
 import express from "express";
-import { spawn } from "child_process";
+import http from "http";
+
+// === 直接导入并执行主监控脚本 ===
+// 注意：它会在导入时立即启动 monitor() 循环。
+import "./monitor-dyor-mainnet.js";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-console.log("🌐 Web service initializing...");
-
-// 启动主监控脚本
-let monitor = spawn("node", ["monitor-dyor-mainnet.js"], {
-  stdio: "inherit",
-  shell: true,
-});
-
-// 错误捕获
-monitor.on("error", (err) => {
-  console.error("❌ 启动监控脚本失败:", err.message);
-});
-
-// 子进程意外退出自动重启
-monitor.on("exit", (code) => {
-  console.warn(`⚠️ 监控脚本退出（代码: ${code}），10 秒后自动重启...`);
-  setTimeout(() => {
-    monitor = spawn("node", ["monitor-dyor-mainnet.js"], { stdio: "inherit", shell: true });
-  }, 10000);
-});
-
-// Render 保活路由
+// Render 会定期 ping 这个端口保持服务常驻
 app.get("/", (req, res) => {
-  res.send("✅ DYOR 主网监控服务正在运行中。");
+  res.send("✅ DYOR Monitor is running and monitoring mainnets.");
 });
 
-app.listen(PORT, () => {
+const server = http.createServer(app);
+server.listen(PORT, () => {
   console.log(`🌐 Web service running on port ${PORT}`);
+});
+
+// Render 在重启或关停时可能发 SIGTERM，这里优雅关闭
+process.on("SIGTERM", () => {
+  console.log("🛑 收到 SIGTERM，正在关闭服务...");
+  server.close(() => process.exit(0));
 });
