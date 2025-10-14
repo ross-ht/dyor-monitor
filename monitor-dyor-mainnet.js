@@ -64,20 +64,36 @@ async function launchBrowser() {
 async function getNetworks(page) {
   try {
     console.log("🌐 正在抓取主网列表...");
-    await page.waitForSelector('button[class*="sc-d6870169-1"] div[class*="sc-118b6623-0"]', { timeout: 60000 });
-    await new Promise((r) => setTimeout(r, 2000));
+    await page.waitForSelector("body", { timeout: 60000 });
 
-    // 提取主网文字
-    const texts = await page.$$eval(
+    // 多层容错选择器
+    const possibleSelectors = [
       'button[class*="sc-d6870169-1"] div[class*="sc-118b6623-0"]',
+      'button.sc-d6870169-1 div.sc-118b6623-0',
+      'button div.sc-118b6623-0',
+      'div.sc-118b6623-0',
+    ];
+
+    let found = false;
+    for (const sel of possibleSelectors) {
+      const el = await page.$(sel);
+      if (el) {
+        await page.waitForSelector(sel, { timeout: 15000 });
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) throw new Error("未找到主网按钮元素，请检查页面结构。");
+
+    // 提取主网文本
+    const texts = await page.$$eval(
+      possibleSelectors.join(", "),
       (els) => els.map((el) => el.textContent.trim()).filter(Boolean)
     );
 
-    // 清洗 & 去重
     const normalize = (s) => s.replace(/\s+/g, " ").trim();
-    const unique = Array.from(new Set(texts.map(normalize))).filter(
-      (x) => /Mainnet|Network|Layer/i.test(x)
-    );
+    const unique = Array.from(new Set(texts.map(normalize))).filter((x) => /Mainnet|Network|Layer/i.test(x));
 
     console.log("📋 当前主网列表:", unique);
 
@@ -106,7 +122,7 @@ async function monitor() {
     try {
       browser = await launchBrowser();
       const page = await browser.newPage();
-      await page.goto("https://dyorswap.org", { timeout: PAGE_TIMEOUT });
+      await page.goto("https://dyorswap.org", { timeout: PAGE_TIMEOUT, waitUntil: "networkidle2" });
       await new Promise((r) => setTimeout(r, 3000));
 
       const networks = await getNetworks(page);
