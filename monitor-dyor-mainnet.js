@@ -95,15 +95,27 @@ async function ensureMenuOpen(page) {
     } catch (_) {}
   }
 
-  // 兜底方案：尝试通过 XPath 匹配 "Select a Network" 文本点击
-  const handles = await page.$x("//*[contains(normalize-space(text()), 'Select a Network')]");
-  if (handles.length) {
-    try {
-      await handles[0].click();
+    // === 兜底方案：用 evaluate 执行 XPath 查找 “Select a Network” ===
+    const clicked = await page.evaluate(() => {
+      try {
+        const xpath = "//*[contains(normalize-space(text()), 'Select a Network')]";
+        const it = document.evaluate(xpath, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+        if (it.snapshotLength > 0) {
+          const node = it.snapshotItem(0);
+          if (node instanceof HTMLElement) {
+            node.click();
+            return true;
+          }
+        }
+        return false;
+      } catch (e) {
+        return false;
+      }
+    });
+  
+    if (clicked) {
       await new Promise(r => setTimeout(r, 800));
-    } catch (_) {}
-  }
-}
+    }
 
 // ===== 抓取主网数据（保持历史成功的简洁提取策略）=====
 async function getNetworks(page) {
