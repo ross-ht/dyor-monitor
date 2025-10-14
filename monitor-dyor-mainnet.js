@@ -118,13 +118,35 @@ async function ensureMenuOpen(page) {
 // === 抓取主网列表 ===
 async function getNetworks(page) {
   try {
-    await page.goto("https://dyorswap.org", {
-      timeout: PAGE_TIMEOUT,
-      waitUntil: "networkidle2",
-    });
-    await new Promise(r => setTimeout(r, 3000));
-    await ensureMenuOpen(page);
+    console.log("🌐 正在访问页面（最多 3 次尝试）...");
+    let success = false;
+    for (let i = 1; i <= 3; i++) {
+      try {
+        console.log(`🌐 正在访问页面（第 ${i}/3 次尝试）...`);
+        await page.goto("https://dyorswap.org", {
+          waitUntil: ["domcontentloaded"], // 更宽松
+          timeout: 90000, // 90 秒
+        });
+        success = true;
+        break;
+      } catch (e) {
+        console.warn(`⚠️ 第 ${i} 次访问失败: ${e.message}`);
+        if (i < 3) {
+          await new Promise(r => setTimeout(r, 5000));
+          continue;
+        } else {
+          throw e;
+        }
+      }
+    }
 
+    if (!success) throw new Error("无法访问 dyorswap.org");
+
+    console.log("🌐 正在等待页面元素渲染...");
+    await page.waitForSelector("body", { timeout: 30000 });
+    await new Promise(r => setTimeout(r, 3000));
+
+    await ensureMenuOpen(page);
     console.log("🌐 正在抓取主网列表...");
 
     const networks = await page.evaluate(() => {
@@ -142,7 +164,11 @@ async function getNetworks(page) {
     if (!cleaned.length) throw new Error("⚠️ 未检测到任何主网，请检查页面结构。");
 
     console.log("📋 当前主网列表:", cleaned);
-    await sendTelegramMessage(`📋 当前主网列表（${new Date().toLocaleString("zh-CN", { hour12: false })}）：\n${cleaned.map(x => `• ${x}`).join("\n")}`);
+    await sendTelegramMessage(
+      `📋 当前主网列表（${new Date().toLocaleString("zh-CN", { hour12: false })}）：\n${cleaned
+        .map(x => `• ${x}`)
+        .join("\n")}`
+    );
     return cleaned;
   } catch (err) {
     console.error("❌ 主网抓取失败:", err.message);
