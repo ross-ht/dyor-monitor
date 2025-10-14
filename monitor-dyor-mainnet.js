@@ -79,38 +79,64 @@ async function launchBrowser() {
 // === 抓取主网列表（v2.2） ===
 async function getNetworks(page) {
   try {
-    await page.setViewport({ width: 1280, height: 900 });
-    await page.waitForSelector("body", { timeout: 15000 });
+    console.log("🌐 正在等待主网菜单渲染...");
+    // 等待网页主框架加载完成
+    await page.waitForSelector("div.sc-de7e8801-1", { timeout: 60000 });
+    await new Promise(r => setTimeout(r, 2000)); // 延迟以等待 React 渲染
 
-    // 打开主网选择
-    const toggleSelector =
-      'div[class*="sc-de7e8801-1"][class*="sc-1080dffc-0"], div[class*="sc-de7e8801-1"][class*="sc-ec57e2f1-0"]';
-    const toggle = await page.$(toggleSelector);
-    if (toggle) {
-      await toggle.click();
-      await new Promise((r) => setTimeout(r, 1500));
+    // 等待主网按钮加载（类名支持模糊匹配）
+    await page.waitForFunction(() => {
+      return document.querySelectorAll(
+        'button[class*="sc-d6870169-1"] div[class*="sc-118b6623-0"]'
+      ).length > 0;
+    }, { timeout: 60000 });
+
+    // 抓取主网名称文本
+    const rawList = await page.$$eval(
+      'button[class*="sc-d6870169-1"] div[class*="sc-118b6623-0"]',
+      els => els.map(el => el.textContent.trim()).filter(Boolean)
+    );
+
+    if (!rawList.length) {
+      console.warn("⚠️ 未检测到任何主网项。");
+      await sendTelegramMessage("⚠️ 未检测到任何主网，请检查页面结构是否有更新。");
+      return [];
     }
 
-    // ✅ 通用匹配所有主网项
-    await page.waitForSelector(
-      'button.sc-d6870169-1 div[class*="sc-118b6623-0"]',
-      { timeout: 8000 }
-    );
-    const networks = await page.$$eval(
-      'button.sc-d6870169-1 div[class*="sc-118b6623-0"]',
-      (nodes) => nodes.map((n) => n.textContent.trim()).filter(Boolean)
-    );
+    // === 数据清洗 ===
+    const normalize = s => s.replace(/\s+/g, " ").trim();
+    const STOP_WORDS = new Set(["select a network", "okb", "wallet", "bridge", "swap", "connect"]);
 
-    // 去重 + 排序
-    const unique = Array.from(new Set(networks)).sort((a, b) =>
+    // 正则提取合法主网名称
+    const extracted = [];
+    const re = /([A-Za-z0-9\- ]+(?:Mainnet|Network|Layer\s?\d+|Chain))/gi;
+    for (const line of rawList) {
+      const clean = normalize(line);
+      if (!clean) continue;
+
+      let matches = clean.match(re);
+      if (matches) extracted.push(...matches.map(m => normalize(m)));
+      else if (!STOP_WORDS.has(clean.toLowerCase())) extracted.push(clean);
+    }
+
+    // 去重、排序
+    const unique = Array.from(new Set(extracted)).sort((a, b) =>
       a.localeCompare(b, "en")
     );
 
     console.log("📋 当前主网列表:", unique);
+    if (unique.length) {
+      const stamp = new Date().toLocaleString("zh-CN", { hour12: false });
+      const msg =
+        `📋 当前主网列表（${stamp}）：\n` +
+        unique.map(n => `• ${n}`).join("\n");
+      await sendTelegramMessage(msg);
+    }
 
     return unique;
   } catch (err) {
     console.error("❌ 主网抓取失败:", err.message);
+    await sendTelegramMessage(`⚠️ 启动时未检测到主网，请检查网页结构。\n错误：${err.message}`);
     return [];
   }
 }
