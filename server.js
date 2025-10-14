@@ -6,26 +6,26 @@ const PORT = process.env.PORT || 10000;
 
 console.log("🌐 Web service initializing...");
 
-// 启动主监控脚本（子进程方式）
-const monitor = spawn("node", ["monitor-dyor-mainnet.js"], {
+// 启动主监控脚本
+let monitor = spawn("node", ["monitor-dyor-mainnet.js"], {
   stdio: "inherit",
   shell: true,
 });
 
-// 捕获错误事件
+// 错误捕获
 monitor.on("error", (err) => {
   console.error("❌ 启动监控脚本失败:", err.message);
 });
 
-// 当子进程退出时自动重启
+// 子进程意外退出自动重启
 monitor.on("exit", (code) => {
-  console.warn(`⚠️ 监控脚本退出，退出码: ${code}。10 秒后重启...`);
+  console.warn(`⚠️ 监控脚本退出（代码: ${code}），10 秒后自动重启...`);
   setTimeout(() => {
-    spawn("node", ["monitor-dyor-mainnet.js"], { stdio: "inherit", shell: true });
+    monitor = spawn("node", ["monitor-dyor-mainnet.js"], { stdio: "inherit", shell: true });
   }, 10000);
 });
 
-// Render 保持在线接口
+// Render 保活路由
 app.get("/", (req, res) => {
   res.send("✅ DYOR 主网监控服务正在运行中。");
 });

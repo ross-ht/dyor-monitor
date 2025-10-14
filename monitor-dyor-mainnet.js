@@ -10,6 +10,7 @@ const CHECK_INTERVAL = process.env.CHECK_INTERVAL ? parseInt(process.env.CHECK_I
 const PAGE_TIMEOUT = process.env.PAGE_TIMEOUT ? parseInt(process.env.PAGE_TIMEOUT) : 60000;
 
 let lastNetworks = [];
+let failureCount = 0;
 
 // === Telegram 推送 ===
 async function sendTelegramMessage(message) {
@@ -32,11 +33,9 @@ async function ensureChromiumInstalled() {
     console.log("✅ Chromium 已存在，无需重新下载。");
     return chromePath;
   }
-
   console.log("⬇️ 正在下载 Chromium...");
   execSync(`mkdir -p ${chromeDir}`, { stdio: "inherit" });
   execSync(`PUPPETEER_CACHE_DIR=${chromeDir} npx puppeteer browsers install chrome`, { stdio: "inherit" });
-
   if (!fs.existsSync(chromePath)) throw new Error("❌ Chromium 下载失败！");
   console.log("✅ Chromium 下载完成。");
   return chromePath;
@@ -65,37 +64,23 @@ async function launchBrowser() {
 async function getNetworks(page) {
   try {
     console.log("🌐 正在抓取主网列表...");
-    await page.waitForSelector("div.sc-de7e8801-1", { timeout: 60000 });
-    await new Promise((r) => setTimeout(r, 3000));
+    await page.waitForSelector('button[class*="sc-d6870169-1"] div[class*="sc-118b6623-0"]', { timeout: 60000 });
+    await new Promise((r) => setTimeout(r, 2000));
 
+    // 提取主网文字
     const texts = await page.$$eval(
       'button[class*="sc-d6870169-1"] div[class*="sc-118b6623-0"]',
       (els) => els.map((el) => el.textContent.trim()).filter(Boolean)
     );
 
+    // 清洗 & 去重
     const normalize = (s) => s.replace(/\s+/g, " ").trim();
-    const STOP_WORDS = new Set([
-      "select a network",
-      "okb",
-      "wallet",
-      "bridge",
-      "swap",
-      "connect",
-    ]);
-
-    const extracted = [];
-    const re = /([A-Za-z0-9\- ]+(?:Mainnet|Network|Layer\s?\d+|Chain))/gi;
-    for (const line of texts) {
-      const clean = normalize(line);
-      if (!clean) continue;
-      let matches = clean.match(re);
-      if (matches) extracted.push(...matches.map((m) => normalize(m)));
-      else if (!STOP_WORDS.has(clean.toLowerCase())) extracted.push(clean);
-    }
-
-    const unique = Array.from(new Set(extracted)).sort((a, b) => a.localeCompare(b, "en"));
+    const unique = Array.from(new Set(texts.map(normalize))).filter(
+      (x) => /Mainnet|Network|Layer/i.test(x)
+    );
 
     console.log("📋 当前主网列表:", unique);
+
     if (unique.length) {
       const stamp = new Date().toLocaleString("zh-CN", { hour12: false });
       await sendTelegramMessage(
@@ -122,7 +107,7 @@ async function monitor() {
       browser = await launchBrowser();
       const page = await browser.newPage();
       await page.goto("https://dyorswap.org", { timeout: PAGE_TIMEOUT });
-      await new Promise((r) => setTimeout(r, 4000));
+      await new Promise((r) => setTimeout(r, 3000));
 
       const networks = await getNetworks(page);
 
@@ -133,8 +118,14 @@ async function monitor() {
         }
         lastNetworks = networks;
       }
+
+      failureCount = 0;
     } catch (err) {
+      failureCount++;
       console.error("⚠️ 监控循环错误:", err.message);
+      if (failureCount === 1 || failureCount % 5 === 0) {
+        await sendTelegramMessage(`⚠️ 网络异常（连续 ${failureCount} 次失败），请检查服务。`);
+      }
     } finally {
       if (browser) await browser.close();
     }
@@ -143,4 +134,5 @@ async function monitor() {
   }
 }
 
+// === 启动主程序 ===
 monitor();
