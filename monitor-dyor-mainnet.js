@@ -66,42 +66,42 @@ async function launchBrowser() {
 
 // ===== 尝试展开“主网选择”下拉 =====
 async function ensureMenuOpen(page) {
-  // 如果已经能看到主网按钮，就不点开了
+  // 如果主网按钮已可见，就不再点击
   const hasDirect = await page.evaluate(() => {
     return document.querySelectorAll('button[class*="sc-d6870169-1"] div[class*="sc-118b6623-0"]').length > 0;
   });
   if (hasDirect) return;
 
-  // 你提供过的 toggle 区域（右上角区域）的一些候选选择器
+  // 你提供的下拉菜单 toggle 容器候选
   const candidates = [
-    // 典型组合类名容器（你曾贴的 dUUCVU / bHahRd / kaSfNO 类组合）
     'div[class*="sc-de7e8801-1"][class*="sc-1080dffc-0"][class*="sc-ec57e2f1-0"]',
-    // 标题含“Select a Network”的父容器
-    'div:has(> div[class*="sc-118b6623-0"]:matches-css-before(content))',
-    // 直接用文本匹配（XPath）
+    'div[class*="sc-de7e8801-1"][class*="dUUCVU"]',
+    'div[class*="sc-2371b370-0"]',
+    'div:has-text("Select a Network")'  // Puppeteer 特殊语法，支持 :has-text()
   ];
 
-  // 先尝试点击常见容器
   for (const sel of candidates) {
-    const el = await page.$(sel);
-    if (el) {
-      await el.click().catch(() => {});
-      await page.waitForTimeout ? await page.waitForTimeout(500) : await new Promise(r => setTimeout(r, 500));
-      // 点击后再检测一次
-      const opened = await page.evaluate(() => {
-        return document.querySelectorAll('button[class*="sc-d6870169-1"] div[class*="sc-118b6623-0"]').length > 0;
-      });
-      if (opened) return;
-    }
+    try {
+      const el = await page.$(sel);
+      if (el) {
+        await el.click().catch(() => {});
+        await new Promise(r => setTimeout(r, 800));
+        // 检查是否展开成功
+        const opened = await page.evaluate(() => {
+          return document.querySelectorAll('button[class*="sc-d6870169-1"] div[class*="sc-118b6623-0"]').length > 0;
+        });
+        if (opened) return;
+      }
+    } catch (_) {}
   }
 
-  // XPath 通过可见文本“Select a Network”寻找可点击区域
-  const handles = await page.$x("//*[normalize-space(text())='Select a Network']");
+  // 兜底方案：尝试通过 XPath 匹配 "Select a Network" 文本点击
+  const handles = await page.$x("//*[contains(normalize-space(text()), 'Select a Network')]");
   if (handles.length) {
     try {
       await handles[0].click();
-      await page.waitForTimeout ? await page.waitForTimeout(500) : await new Promise(r => setTimeout(r, 500));
-    } catch {}
+      await new Promise(r => setTimeout(r, 800));
+    } catch (_) {}
   }
 }
 
