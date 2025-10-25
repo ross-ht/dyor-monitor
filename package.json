@@ -1,8 +1,12 @@
 {
   "dependencies": {
+    "acorn": "^8.15.0",
+    "acorn-walk": "^8.3.4",
     "axios": "^1.12.2",
+    "dotenv": "^17.2.3",
     "express": "^4.19.2",
-    "puppeteer": "^24.24.0"
+    "node-fetch": "^3.3.2",
+    "puppeteer": "^24.26.1"
   },
   "type": "module",
   "name": "dyor-monitor",
@@ -10,7 +14,8 @@
   "description": "",
   "main": "monitor-dyor-mainnet.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
   },
   "repository": {
     "type": "git",
@@ -22,6 +27,5 @@
   "bugs": {
     "url": "https://github.com/ross-ht/dyor-monitor/issues"
   },
-  "homepage": "https://github.com/ross-ht/dyor-monitor#readme",
-  "_rebuild": "v2"
+  "homepage": "https://github.com/ross-ht/dyor-monitor#readme"
 }

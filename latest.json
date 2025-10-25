@@ -1,0 +1,240 @@
+[
+  {
+    "id": 57073,
+    "name": "Ink",
+    "iconUrl": "/images/chains/57073.png",
+    "nativeCurrency": {
+      "decimals": 18,
+      "name": "ETH Native Token",
+      "symbol": "ETH"
+    },
+    "contracts": {},
+    "fees": null,
+    "formatters": null,
+    "blockExplorers": {},
+    "rpcUrls": {}
+  },
+  {
+    "id": 86,
+    "name": "Gate Network L1",
+    "network": "GT",
+    "iconUrl": "/images/chains/86.png",
+    "nativeCurrency": {
+      "name": "GT Native Token",
+      "symbol": "GT",
+      "decimals": 18
+    },
+    "contracts": {},
+    "fees": null,
+    "formatters": null,
+    "blockExplorers": {},
+    "rpcUrls": {}
+  },
+  {
+    "id": 80094,
+    "name": "Bera Network",
+    "network": "berachain",
+    "iconUrl": "/images/chains/80094.png",
+    "nativeCurrency": {
+      "name": "BERA Native Token",
+      "symbol": "BERA",
+      "decimals": 18
+    },
+    "contracts": {},
+    "fees": null,
+    "formatters": null,
+    "blockExplorers": {},
+    "rpcUrls": {}
+  },
+  {
+    "id": 8453,
+    "name": "Base Network",
+    "network": "base",
+    "iconUrl": "/images/chains/8453.png",
+    "nativeCurrency": {
+      "name": "ETH Native Token",
+      "symbol": "ETH",
+      "decimals": 18
+    },
+    "contracts": {},
+    "fees": null,
+    "formatters": null,
+    "blockExplorers": {},
+    "rpcUrls": {}
+  },
+  {
+    "id": 999,
+    "name": "Hyper Network",
+    "network": "hyperevm",
+    "iconUrl": "/images/chains/999.png",
+    "nativeCurrency": {
+      "name": "Hyper Native Token",
+      "symbol": "Hyper",
+      "decimals": 18
+    },
+    "contracts": {},
+    "fees": null,
+    "formatters": null,
+    "blockExplorers": {},
+    "rpcUrls": {}
+  },
+  {
+    "id": 146,
+    "name": "Sonic Network",
+    "network": "sonic",
+    "iconUrl": "/images/chains/146.png",
+    "nativeCurrency": {
+      "name": "Sonic Native Token",
+      "symbol": "Sonic",
+      "decimals": 18
+    },
+    "contracts": {},
+    "fees": null,
+    "formatters": null,
+    "blockExplorers": {},
+    "rpcUrls": {}
+  },
+  {
+    "id": 130,
+    "name": "Uni Network",
+    "network": "unichain",
+    "iconUrl": "/images/chains/130.png",
+    "nativeCurrency": {
+      "name": "ETH Native Token",
+      "symbol": "ETH",
+      "decimals": 18
+    },
+    "contracts": {},
+    "fees": null,
+    "formatters": null,
+    "blockExplorers": {},
+    "rpcUrls": {}
+  },
+  {
+    "id": 25,
+    "name": "Cronos Network",
+    "network": "cronos",
+    "iconUrl": "/images/chains/25.png",
+    "nativeCurrency": {
+      "name": "CRO Native Token",
+      "symbol": "CRO",
+      "decimals": 18
+    },
+    "contracts": {},
+    "fees": null,
+    "formatters": null,
+    "blockExplorers": {},
+    "rpcUrls": {}
+  },
+  {
+    "id": 59144,
+    "name": "Linea Mainnet",
+    "network": "linea",
+    "iconUrl": "/images/chains/59144.png",
+    "nativeCurrency": {
+      "name": "ETH Native Token",
+      "symbol": "ETH",
+      "decimals": 18
+    },
+    "contracts": {},
+    "fees": null,
+    "formatters": null,
+    "blockExplorers": {},
+    "rpcUrls": {}
+  },
+  {
+    "id": 2818,
+    "name": "Morph Mainnet",
+    "network": "morph",
+    "iconUrl": "/images/chains/2818.png",
+    "nativeCurrency": {
+      "name": "ETH Native Token",
+      "symbol": "ETH",
+      "decimals": 18
+    },
+    "contracts": {},
+    "fees": null,
+    "formatters": null,
+    "blockExplorers": {},
+    "rpcUrls": {}
+  },
+  {
+    "id": 5000,
+    "name": "Mantle Network",
+    "network": "mantle",
+    "iconUrl": "/images/chains/5000.png",
+    "nativeCurrency": {
+      "name": "Mantle Native Token",
+      "symbol": "MNT",
+      "decimals": 18
+    },
+    "contracts": {},
+    "fees": null,
+    "formatters": null,
+    "blockExplorers": {},
+    "rpcUrls": {}
+  },
+  {
+    "id": 16661,
+    "name": "0G Mainnet",
+    "network": "0G",
+    "iconUrl": "/images/chains/16661.png",
+    "nativeCurrency": {
+      "name": "0G Native Token",
+      "symbol": "0G",
+      "decimals": 18
+    },
+    "contracts": {},
+    "fees": null,
+    "formatters": null,
+    "blockExplorers": {},
+    "rpcUrls": {}
+  },
+  {
+    "id": 10088,
+    "name": "Gate Layer L2",
+    "network": "gt",
+    "iconUrl": "/images/chains/10088.png",
+    "nativeCurrency": {
+      "name": "Gate Layer Native Token",
+      "symbol": "GT",
+      "decimals": 18
+    },
+    "contracts": {},
+    "fees": null,
+    "formatters": null,
+    "blockExplorers": {},
+    "rpcUrls": {}
+  },
+  {
+    "id": 9745,
+    "name": "Plasma Mainnet",
+    "network": "plasma",
+    "iconUrl": "/images/chains/9745.png",
+    "nativeCurrency": {
+      "name": "Plasma Mainnet Native Token",
+      "symbol": "XPL",
+      "decimals": 18
+    },
+    "contracts": {},
+    "fees": null,
+    "formatters": null,
+    "blockExplorers": {},
+    "rpcUrls": {}
+  },
+  {
+    "id": 196,
+    "name": "X Layer mainnet",
+    "iconUrl": "/images/chains/196.png",
+    "nativeCurrency": {
+      "decimals": 18,
+      "name": "OKB",
+      "symbol": "OKB"
+    },
+    "contracts": {},
+    "fees": null,
+    "formatters": null,
+    "blockExplorers": {},
+    "rpcUrls": {}
+  }
+]
