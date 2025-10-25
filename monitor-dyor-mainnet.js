@@ -136,3 +136,4 @@ async function monitor() {
     process.exit(1);
   }
 })();
+export default monitor;
