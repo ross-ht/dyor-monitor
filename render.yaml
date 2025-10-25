@@ -2,10 +2,9 @@ services:
   - type: web
     name: dyor-monitor
     env: node
-    region: singapore           # 或 oregon / frankfurt
     plan: free
-    buildCommand: npm install
-    startCommand: node server.js
+    buildCommand: "npm install"
+    startCommand: "node server.js"
     autoDeploy: true
     envVars:
       - key: TELEGRAM_BOT_TOKEN
@@ -13,8 +12,10 @@ services:
       - key: TELEGRAM_CHAT_ID
         sync: false
       - key: CHECK_INTERVAL
-        sync: false
+        value: "60000"
       - key: PAGE_TIMEOUT
-        sync: false
-     
-  
+        value: "90000"
+      - key: NODE_ENV
+        value: "production"
+      - key: PUPPETEER_CACHE_DIR
+        value: "./.local-chromium"
