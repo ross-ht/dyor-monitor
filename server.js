@@ -10,12 +10,11 @@ const monitorProcess = exec("node monitor-dyor-mainnet.js", {
   env: process.env,
 });
 
-// 输出监控脚本日志到 Render 控制台
-monitorProcess.stdout?.on("data", (data) => console.log(data.toString()));
-monitorProcess.stderr?.on("data", (data) => console.error(data.toString()));
+monitorProcess.stdout?.on("data", (d) => process.stdout.write(d));
+monitorProcess.stderr?.on("data", (d) => process.stderr.write(d));
 
-// Render 用来保活的 Web 服务
-app.get("/", (req, res) => {
+// Render 保活端口
+app.get("/", (_req, res) => {
   res.send("✅ DYOR Monitor Background Service is running.");
 });
 
@@ -23,7 +22,6 @@ app.listen(PORT, () => {
   console.log(`🌐 Web service running on port ${PORT}`);
 });
 
-// 优雅关闭
 process.on("SIGTERM", () => {
   console.log("🛑 收到 SIGTERM，正在关闭服务...");
   monitorProcess.kill("SIGTERM");
